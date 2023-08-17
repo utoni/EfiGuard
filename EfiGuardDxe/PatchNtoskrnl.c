@@ -27,6 +27,7 @@ STATIC CONST UINT8 SigKeInitAmd64SpecificState[] = {
 	0x41, 0xF7, 0xF8			// idiv r8d
 };
 
+#ifndef DO_NOT_DISABLE_PATCHGUARD
 // Signature for nt!KiVerifyScopesExecute
 // This function is present since Windows 8.1 and is responsible for executing all functions in the KiVerifyXcptRoutines array.
 // One of these functions, KiVerifyXcpt15, will indirectly initialize a PatchGuard context from its exception handler.
@@ -57,6 +58,7 @@ STATIC CONST UINT8 SigKiSwInterrupt[] = {
 	0xFA													// cli
 };
 STATIC CONST UINTN SigKiSwInterruptCallOffset = 5, SigKiSwInterruptCliOffset = 10;
+#endif
 
 // Signature for nt!SeCodeIntegrityQueryInformation, called through NtQuerySystemInformation(SystemCodeIntegrityInformation).
 // This function has actually existed since Vista in various forms, sometimes (8/8.1/early 10) inlined in ExpQuerySystemInformation.
@@ -78,6 +80,7 @@ STATIC CONST UINT8 SeCodeIntegrityQueryInformationPatch[] = {
 };
 
 
+#ifndef DO_NOT_DISABLE_PATCHGUARD
 //
 // Defuses PatchGuard initialization routines before execution is transferred to the kernel.
 // All code accessed here is located in the INIT and .text sections.
@@ -497,6 +500,7 @@ DisablePatchGuard(
 
 	return EFI_SUCCESS;
 }
+#endif
 
 //
 // Disables DSE for the duration of the boot by preventing it from initializing.
@@ -883,6 +887,7 @@ PatchNtoskrnl(
 
 	ASSERT(InitSection != NULL && TextSection != NULL && PageSection != NULL);
 
+#ifndef DO_NOT_DISABLE_PATCHGUARD
 	// Patch INIT and .text sections to disable PatchGuard
 	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Disabling PatchGuard... [INIT RVA: 0x%X - 0x%X]\r\n",
 		InitSection->VirtualAddress, InitSection->VirtualAddress + InitSection->SizeOfRawData);
@@ -895,6 +900,9 @@ PatchNtoskrnl(
 		return Status;
 
 	PRINT_KERNEL_PATCH_MSG(L"\r\n[PatchNtoskrnl] Successfully disabled PatchGuard.\r\n");
+#else
+	PRINT_KERNEL_PATCH_MSG(L"\r\n*** Not disabling PatchGuard ***\r\n");
+#endif
 
 	if (gDriverConfig.DseBypassMethod == DSE_DISABLE_AT_BOOT ||
 		(BuildNumber < 9200 && gDriverConfig.DseBypassMethod != DSE_DISABLE_NONE))
