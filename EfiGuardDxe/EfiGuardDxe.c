@@ -76,14 +76,14 @@ STATIC EFI_SET_VARIABLE mOriginalSetVariable = NULL;
 #endif
 
 // Title (adapted from original by Dude719)
-#define EFIGUARD_TITLE1		L"\r\n ██╗     ██╗            ██╗      ██╗   ██╗ " \
-							L"\r\n ████╗ ████║  ██████╗████████╗████████╗╚═╝ " \
-							L"\r\n ██║ ██╔═██║██╔════██╗  ██╔══╝   ██╔══╝██╗ " \
-							L"\r\n ██║ ╚═╝ ██║██║    ██║  ██║      ██║   ██║ " 
-#define EFIGUARD_TITLE2		L"\r\n ██║     ██║ ╚███████║  █████╗   █████╗██║ " \
-							L"\r\n ╚═╝     ╚═╝  ╚══════╝  ╚════╝   ╚════╝╚═╝ " \
-							L"\r\n                                           " \
-							L"\r\n        Rootkits You Can Trust (TM)        \r\n"
+#define EFIGUARD_TITLE1     L"\r\n ╔═══════════════════════════════════════╗ " \
+                            L"\r\n ║ █████████████████████████████████████ ║ " \
+                            L"\r\n ║ ██████ DSE / PatchGuard bypass ██████ ║ " \
+                            L"\r\n ║ █████████████- EfiGuard -████████████ ║ "
+#define EFIGUARD_TITLE2     L"\r\n ║ █████████████████████████████████████ ║ " \
+                            L"\r\n ╚═══════════════════════════════════════╝ " \
+                            L"\r\n                                           " \
+                            L"\r\n        Rootkits You Can Trust (TM)        \r\n"
 
 
 //
