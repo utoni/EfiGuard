@@ -2,6 +2,10 @@
 
 #include <Library/BaseMemoryLib.h>
 
+#if defined(DO_NOT_DISABLE_PATCHGUARD) && defined(EAC_COMPAT_MODE)
+#error "Either DO_NOT_DISABLE_PATCHGUARD or EAC_COMPAT_MODE can be defined at the same time!"
+#endif
+
 
 // Global kernel patch status information.
 //
@@ -13,7 +17,7 @@
 // because it allows the buffer to be accessed from both contexts at all stages of driver execution.
 KERNEL_PATCH_INFORMATION gKernelPatchInfo;
 
-
+#ifndef DO_NOT_DISABLE_PATCHGUARD
 // Signature for nt!KeInitAmd64SpecificState
 // This function is present in all x64 kernels since Vista. It generates a #DE due to 32 bit idiv quotient overflow.
 STATIC CONST UINT8 SigKeInitAmd64SpecificState[] = {
@@ -27,7 +31,6 @@ STATIC CONST UINT8 SigKeInitAmd64SpecificState[] = {
 	0x41, 0xF7, 0xF8			// idiv r8d
 };
 
-#ifndef DO_NOT_DISABLE_PATCHGUARD
 // Signature for nt!KiVerifyScopesExecute
 // This function is present since Windows 8.1 and is responsible for executing all functions in the KiVerifyXcptRoutines array.
 // One of these functions, KiVerifyXcpt15, will indirectly initialize a PatchGuard context from its exception handler.
@@ -36,6 +39,7 @@ STATIC CONST UINT8 SigKiVerifyScopesExecute[] = {
 	0x48, 0xB8, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE	// mov rax, 0FEFFFFFFFFFFFFFFh
 };
 
+#ifndef EAC_COMPAT_MODE
 // Signature for nt!KiMcaDeferredRecoveryService
 // This function is present since Windows 8.1 and bugchecks the system with bugcode 0x109 after zeroing registers.
 // It is called by KiScanQueues and KiSchedulerDpc, two PatchGuard DPCs which may be queued from various unrelated kernel functions.
@@ -58,6 +62,7 @@ STATIC CONST UINT8 SigKiSwInterrupt[] = {
 	0xFA													// cli
 };
 STATIC CONST UINTN SigKiSwInterruptCallOffset = 5, SigKiSwInterruptCliOffset = 10;
+#endif
 #endif
 
 // Signature for nt!SeCodeIntegrityQueryInformation, called through NtQuerySystemInformation(SystemCodeIntegrityInformation).
@@ -292,6 +297,7 @@ DisablePatchGuard(
 		}
 	}
 
+#ifndef EAC_COMPAT_MODE
 	// Search for callers of KiMcaDeferredRecoveryService (only exists on Windows >= 8.1)
 	UINT8* KiMcaDeferredRecoveryServiceCallers[2];
 	ZeroMem((VOID*)KiMcaDeferredRecoveryServiceCallers, sizeof(KiMcaDeferredRecoveryServiceCallers));
@@ -441,6 +447,7 @@ DisablePatchGuard(
 			}
 		}
 	}
+#endif
 
 	// We have all the addresses we need; now do the actual patching.
 	CONST UINT32 Yes = 0xC301B0;	// mov al, 1, ret
@@ -451,6 +458,7 @@ DisablePatchGuard(
 		CopyWpMem(ExpLicenseWatchInitWorker, &No, sizeof(No));
 	if (KiVerifyScopesExecute != NULL)
 		CopyWpMem(KiVerifyScopesExecute, &No, sizeof(No));
+#ifndef EAC_COMPAT_MODE
 	if (KiMcaDeferredRecoveryServiceCallers[0] != NULL && KiMcaDeferredRecoveryServiceCallers[1] != NULL)
 	{
 		CopyWpMem(KiMcaDeferredRecoveryServiceCallers[0], &No, sizeof(No));
@@ -465,6 +473,7 @@ DisablePatchGuard(
 	{
 		SetWpMem(KiSwInterruptPatternAddress, sizeof(SigKiSwInterrupt), 0x90); // 11 x nop
 	}
+#endif
 
 	// Print info
 	PRINT_KERNEL_PATCH_MSG(L"\r\n    Patched KeInitAmd64SpecificState [RVA: 0x%X].\r\n",
@@ -481,6 +490,7 @@ DisablePatchGuard(
 		PRINT_KERNEL_PATCH_MSG(L"    Patched KiVerifyScopesExecute [RVA: 0x%X].\r\n",
 			(UINT32)(KiVerifyScopesExecute - ImageBase));
 	}
+#ifndef EAC_COMPAT_MODE
 	if (KiMcaDeferredRecoveryServiceCallers[0] != NULL && KiMcaDeferredRecoveryServiceCallers[1] != NULL)
 	{
 		PRINT_KERNEL_PATCH_MSG(L"    Patched KiMcaDeferredRecoveryService [RVAs: 0x%X, 0x%X].\r\n",
@@ -497,6 +507,7 @@ DisablePatchGuard(
 		PRINT_KERNEL_PATCH_MSG(L"    Patched KiSwInterrupt [RVA: 0x%X].\r\n",
 			(UINT32)(KiSwInterruptPatternAddress - ImageBase));
 	}
+#endif
 
 	return EFI_SUCCESS;
 }
