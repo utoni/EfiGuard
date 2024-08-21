@@ -1,6 +1,9 @@
 #pragma once
 
 #include "ntdll.h"
+#ifdef __MINGW64__
+#include <stdio.h>
+#endif
 
 #if defined(__cplusplus) && \
 	((defined(_MSC_VER) && (_MSC_VER >= 1900)) || defined(__clang__))
@@ -119,6 +122,7 @@ _vsnwprintf(
 	_In_ va_list ArgList
 	);
 
+#ifndef __MINGW64__
 NTSYSAPI
 ULONG
 __cdecl
@@ -127,6 +131,7 @@ wcstoul(
 	_Out_opt_ PWCHAR* EndPtr,
 	_In_ LONG Radix
 	);
+#endif
 
 // Console functions
 WPRINTF_ATTR(1, 2)
@@ -141,7 +146,10 @@ Printf(
 	va_list VaList;
 	va_start(VaList, Format);
 	ULONG N = _vsnwprintf(Buffer, sizeof(Buffer) / sizeof(WCHAR) - 1, Format, VaList);
-#if defined(_NATIVE)
+#ifdef __MINGW64__
+	UNREFERENCED_PARAMETER(N);
+	wprintf(L"%ls", Buffer);
+#elif defined(_NATIVE)
 	UNREFERENCED_PARAMETER(N);
 	UNICODE_STRING String;
 	RtlInitUnicodeString(&String, Buffer);

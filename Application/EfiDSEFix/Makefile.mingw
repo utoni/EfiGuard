@@ -1,0 +1,31 @@
+CC = x86_64-w64-mingw32-gcc
+CXX = x86_64-w64-mingw32-g++
+CFLAGS = -m64 -fPIC -mconsole -municode
+TARGETS := src/main.o src/pe.o src/sysinfo.o src/EfiDSEFix.o src/hde/hde64.o
+IMPLIBS := -lntdll
+
+all: EfiDSEFix.exe
+
+clean:
+	rm -f EfiDSEFix.exe $(TARGETS)
+
+EfiDSEFix.exe: $(TARGETS)
+	$(CXX) $(CFLAGS) $(TARGETS) $(IMPLIBS) -o $@
+
+src/main.o: src/main.cpp
+	$(CXX) $(CFLAGS) -c src/main.cpp -o $@
+
+src/pe.o: src/pe.cpp
+	$(CXX) $(CFLAGS) -c src/pe.cpp -o $@
+
+src/sysinfo.o: src/sysinfo.cpp
+	$(CXX) $(CFLAGS) -c src/sysinfo.cpp -o $@
+
+src/EfiDSEFix.o: src/ntdll.h src/EfiCompat.h src/EfiDSEFix.h src/EfiDSEFix.cpp
+	$(CXX) $(CFLAGS) \
+		-I ../../../MdePkg/Include \
+		-I ../../Include \
+		-c src/EfiDSEFix.cpp -o $@
+
+src/hde/hde64.o: src/hde/hde64.h src/hde/table64.h src/hde/hde64.c
+	$(CC) $(CFLAGS) -c src/hde/hde64.c -o $@

@@ -16,7 +16,11 @@ extern "C" {
 #ifndef WIN32_NO_STATUS
 #define WIN32_NO_STATUS
 #endif
+#ifdef __MINGW64__
+#include <windows.h>
+#else
 #include <Windows.h>
+#endif
 #undef WIN32_NO_STATUS
 #include <intrin.h>
 
@@ -8859,6 +8863,7 @@ RtlWalkHeap(
 	_Inout_ PRTL_HEAP_WALK_ENTRY Entry
 	);
 
+#ifndef __MINGW64__
 NTSYSAPI
 NTSTATUS
 NTAPI
@@ -8879,6 +8884,7 @@ RtlSetHeapInformation(
 	_In_opt_ PVOID HeapInformation,
 	_In_opt_ SIZE_T HeapInformationLength
 	);
+#endif
 
 NTSYSAPI
 SIZE_T
