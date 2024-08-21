@@ -46,9 +46,25 @@ EfiGuard requires EDK2 to build. If you don't have EDK2 installed, follow the st
 2. Open a prompt or shell that sets up the environment variables for EDK2.
 3. Run `build -a X64 -t VS2019 -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE`, substituting your toolchain for VS2019.
 
+## Compiling EfiGuardDxe and the loader on Linux
+1. Clone edk2: `git clone https://github.com/tianocore/edk2.git`
+2. Change directory to edk2: `cd edk2`
+3. Clone EfiGuard: `git clone https://github.com/utoni/EfiGuard.git EfiGuardPkg`
+4. Run `. ./edksetup.sh`
+5. Run `build -a X64 -t GCC5 -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE -D EFIGUARD_DRIVER_FILENAME='myefidrv.efi'`
 
+Add `-D EAC_COMPAT_MODE=1` if you want to enable EasyAntiCheat compatibility mode (Experimental!).
+
+Add `-D DO_NOT_DISABLE_PATCHGUARD=1` if you want to leave PatchGuard intact (Experimental!).
+
+## Last but not Least
 This will produce `EfiGuardDxe.efi` and `Loader.efi` in `workspace/Build/EfiGuard/RELEASE_VS2019/X64`.
 To build the interactively configurable loader, append `-D CONFIGURE_DRIVER=1` to the build command.
+
+If you've set `EFIGUARD_DRIVER_FILENAME`, you'll need to rename `EfiGuardDxe.efi` to `EFIGUARD_DRIVER_FILENAME`.
+TODO: Rename automatic.
+
+Copy both `*.efi` files to your EFI boot partition at `/EFI/Boot/`.
 
 ## Compiling EfiDSEFix
 EfiDSEFix requires Visual Studio to build.
@@ -58,6 +74,29 @@ EfiDSEFix requires Visual Studio to build.
 The output binary `EfiDSEFix.exe` will be in `Application/EfiDSEFix/bin`.
 
 The Visual Studio solution also includes projects for `EfiGuardDxe.efi` and `Loader.efi` which can be used with [VisualUefi](https://github.com/ionescu007/VisualUefi), but these projects are not built by default as they will not link without additional code, and the build output will be inferior (bigger) than what EDK2 produces. `Loader.efi` will not link at all due to VisualUefi missing UefiBootManagerLib. These project files are thus meant as a development aid only and the EFI files should still be compiled with EDK2. To set up VisualUefi for this purpose, clone the repository into `workspace/VisualUefi` and open `EfiGuard.sln`.
+
+## Compiling EfiDSEFix with Mingw64 on Linux
+Run: `make -C EfiGuardPkg/Application/EfiDSEFix -f Makefile.mingw`
+
+# Using EfiGuard together with Grub2
+
+Create (or append) a text file: `sudo vim /etc/grub.d/40_custom`
+
+Add:
+
+```
+menuentry "Windows 10 EfiGuard" {
+        insmod part_gpt
+        insmod search_fs_uuid
+        insmod chain
+        search --fs-uuid --no-floppy --set=root XXXX-XXXX
+        chainloader ($root)/EFI/Boot/Loader.efi
+}
+```
+
+and change `XXXX-XXXX` to the UUID returned by: `sudo blkid /dev/disk` whereas disk is your EFI partition.
+
+You may rename `Loader.efi` to any file you want, but keep in mind that `EfiGuardDxe.efi` needs to be in the same folder as `Loader.efi` ANDneeds to be renamed to `EFIGUARD_DRIVER_FILENAME` (if set).
 
 # Architecture
   ![architecture](Misc/EfiGuard.svg)
