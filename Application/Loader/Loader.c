@@ -31,16 +31,19 @@ STATIC CHAR16* mDriverPaths[] = {
 STATIC EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *mTextInputEx = NULL;
 
 VOID
+EFIAPI
 BmRepairAllControllers(
 	IN UINTN ReconnectRepairCount
 	);
 
 VOID
+EFIAPI
 BmSetMemoryTypeInformationVariable(
 	IN BOOLEAN Boot
 	);
 
 BOOLEAN
+EFIAPI
 BmIsAutoCreateBootOption(
 	IN EFI_BOOT_MANAGER_LOAD_OPTION *BootOption
 	);

@@ -1,6 +1,6 @@
 CC = x86_64-w64-mingw32-gcc
 CXX = x86_64-w64-mingw32-g++
-CFLAGS = -m64 -fPIC -municode
+CFLAGS = -m64 -fPIC -mconsole -municode
 TARGETS := src/main.o src/pe.o src/sysinfo.o src/EfiDSEFix.o src/hde/hde64.o
 IMPLIBS := -lntdll
 
