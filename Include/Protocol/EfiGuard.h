@@ -12,7 +12,7 @@ extern "C" {
 //
 #define EFI_EFIGUARD_DRIVER_PROTOCOL_GUID \
 	{ \
-	0x51e4785b, 0xb1e4, 0x4fda, { 0xaf, 0x5f, 0x94, 0x2e, 0xc0, 0x15, 0xf1, 0x7 } \
+	0xa2b65550, 0x8675, 0x48ac, { 0xbd, 0xe6, 0x02, 0xa5, 0x3b, 0xc2, 0x02, 0x3c } \
 	}
 
 //
@@ -58,16 +58,21 @@ typedef enum _EFIGUARD_DSE_BYPASS_TYPE {
 // (1) one of the Byte through Qword fields (depending on size) will contain the value at KernelAddress, or
 // (2) the memcpy performed will be in the opposite direction, i.e. from KernelAddress to UserBuffer.
 //
-#define EFIGUARD_BACKDOOR_VARIABLE_NAME						L"roodkcaBdrauGifE" // "EfiGuardBackdoor" // TODO: randomize?
+#define EFIGUARD_BACKDOOR_VARIABLE_NAME						L"GLM" // "MLG" // TODO: randomize?
 #define EFIGUARD_BACKDOOR_VARIABLE_GUID						&gEfiGlobalVariableGuid
 #define EFIGUARD_BACKDOOR_VARIABLE_ATTRIBUTES				(EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | EFI_VARIABLE_RUNTIME_ACCESS)
 #define EFIGUARD_BACKDOOR_VARIABLE_DATASIZE					sizeof(EFIGUARD_BACKDOOR_DATA)
 
-#define EFIGUARD_BACKDOOR_COOKIE_VALUE						(0xDEADC0DE)
+#define EFIGUARD_BACKDOOR_COOKIE_VALUE						(0xBEEFBEEF)
 
 typedef struct _EFIGUARD_BACKDOOR_DATA {
 
+	UINT8 garbage_00[8];
+
 	UINTN CookieValue; // Currently must be EFIGUARD_BACKDOOR_COOKIE_VALUE
+
+	UINT8 garbage_01[128];
+
 	VOID* KernelAddress;
 
 	union {

@@ -245,6 +245,11 @@ HookedSetVariable(
 	// We should not be hooking the runtime table after ExitBootServices() unless this is the selected DSE bypass method
 	ASSERT(!gEfiAtRuntime || (gDriverConfig.DseBypassMethod == DSE_DISABLE_SETVARIABLE_HOOK && gBootmgfwHandle != NULL));
 
+	if (StrCmp(VariableName, L"SecureBoot") == 0)
+	{
+		return EFI_WRITE_PROTECTED;
+	}
+
 	// Do we have a match for the variable name and vendor GUID?
 	if (gEfiAtRuntime && gEfiGoneVirtual &&
 		VariableName != NULL && VariableName[0] != CHAR_NULL && VendorGuid != NULL &&

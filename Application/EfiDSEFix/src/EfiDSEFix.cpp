@@ -410,6 +410,8 @@ WriteToCiOptions(
 		*OldCiOptionsValue = OldCiOptions;
 	}
 
+	RtlZeroMemory(&BackdoorData, sizeof(BackdoorData));
+
 	return STATUS_SUCCESS;
 }
 
