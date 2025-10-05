@@ -418,7 +418,7 @@ WriteToCiOptions(
 NTSTATUS
 CleanDseTraces()
 {
-	Printf(L"[Cleaner] Attempting to remove DSE traces...\n");
+	Printf(L"Attempting to remove DSE traces...\n");
 
 	// Remove the backdoor NVRAM variable if present
 	UNICODE_STRING VariableName = RTL_CONSTANT_STRING(EFIGUARD_BACKDOOR_VARIABLE_NAME);
@@ -430,10 +430,8 @@ CleanDseTraces()
 		EFIGUARD_BACKDOOR_VARIABLE_ATTRIBUTES
 	);
 
-	if (NT_SUCCESS(Status)) {
-		Printf(L"[Cleaner] Successfully deleted NVRAM variable used for DSE operations.\n");
-	} else {
-		Printf(L"[Cleaner] Failed to delete NVRAM variable (status: 0x%08lX).\n", Status);
+	if (!NT_SUCCESS(Status)) {
+		Printf(L"Failed to delete NVRAM variable (status: 0x%08lX).\n", Status);
 	}
 
 	// Add additional cleaning steps here if needed (e.g., zero memory, remove logs, etc.)
@@ -451,17 +449,15 @@ AdjustCiOptions(
 	if (OldCiOptionsValue != nullptr)
 		*OldCiOptionsValue = CODEINTEGRITY_OPTION_ENABLED;
 
-	Printf(L"[DSE] Requested operation: %ls\n", (CiOptionsValue == CODEINTEGRITY_OPTION_ENABLED) ? L"Enable DSE" : L"Disable DSE");
-
 	// Find CI!g_CiOptions/nt!g_CiEnabled
 	PVOID CiOptionsAddress;
 	NTSTATUS Status = FindCiOptionsVariable(&CiOptionsAddress);
 	if (!NT_SUCCESS(Status)) {
-		Printf(L"[DSE] Failed to locate CI variable (status: 0x%08lX)\n", Status);
+		Printf(L"Failed to locate CI variable (status: 0x%08lX)\n", Status);
 		return Status;
 	}
 
-	Printf(L"[DSE] Target variable: %ls at 0x%p.\n", (NtCurrentPeb()->OSBuildNumber >= 9200 ? L"CI!g_CiOptions" : L"nt!g_CiEnabled"), CiOptionsAddress);
+	Printf(L"Target variable: %ls at 0x%p.\n", (NtCurrentPeb()->OSBuildNumber >= 9200 ? L"CI!g_CiOptions" : L"nt!g_CiEnabled"), CiOptionsAddress);
 
 	// Enable/disable CI
 	Status = WriteToCiOptions(CiOptionsAddress,
@@ -469,16 +465,11 @@ AdjustCiOptions(
 							OldCiOptionsValue,
 							ReadOnly);
 
-	if (NT_SUCCESS(Status)) {
-		Printf(L"[DSE] Operation succeeded. DSE is now %ls.\n", (CiOptionsValue == CODEINTEGRITY_OPTION_ENABLED) ? L"ENABLED" : L"DISABLED");
-	} else {
-		Printf(L"[DSE] Operation failed (status: 0x%08lX).\n", Status);
+	if (!NT_SUCCESS(Status)) {
+		Printf(L"Operation failed (status: 0x%08lX).\n", Status);
 	}
 
-	// If re-enabling DSE, run the cleaner
-	if (CiOptionsValue == CODEINTEGRITY_OPTION_ENABLED) {
-		CleanDseTraces();
-	}
+	CleanDseTraces();
 
 	return Status;
 }
