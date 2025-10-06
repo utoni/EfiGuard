@@ -48,6 +48,7 @@ BmIsAutoCreateBootOption(
 	IN EFI_BOOT_MANAGER_LOAD_OPTION *BootOption
 	);
 
+#ifndef FASTBOOT
 STATIC
 VOID
 ResetTextInput(
@@ -59,6 +60,7 @@ ResetTextInput(
 	else
 		gST->ConIn->Reset(gST->ConIn, FALSE);
 }
+#endif
 
 STATIC
 UINT16
@@ -82,6 +84,7 @@ WaitForKey(
 	return KeyData.Key.ScanCode;
 }
 
+#ifndef FASTBOOT
 STATIC
 UINT16
 EFIAPI
@@ -101,6 +104,7 @@ WaitForKeyWithTimeout(
 	ResetTextInput();
 	return KeyData.Key.ScanCode;
 }
+#endif
 
 STATIC
 UINT16
@@ -685,8 +689,12 @@ UefiMain(
 	//
 	// Allow user to configure the driver by pressing a hotkey
 	//
+#ifndef FASTBOOT
 	Print(L"Press <HOME> to configure EfiGuard...\r\n");
 	CONST BOOLEAN InteractiveConfiguration = WaitForKeyWithTimeout(1500) == SCAN_HOME;
+#else
+	CONST BOOLEAN InteractiveConfiguration = FALSE;
+#endif
 
 	//
 	// Locate, load, start and configure the driver

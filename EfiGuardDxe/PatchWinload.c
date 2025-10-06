@@ -818,7 +818,9 @@ Exit:
 	else
 	{
 		Print(L"Successfully patched winload!OslFwpKernelSetupPhase1.\r\n");
+#ifndef FASTBOOT
 		RtlSleep(2000);
+#endif
 
 		if (gDriverConfig.WaitForKeyPress)
 		{

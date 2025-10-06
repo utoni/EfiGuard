@@ -363,7 +363,9 @@ Exit:
 	else
 	{
 		Print(L"Successfully patched %S!%S.\r\n", ShortFileName, FunctionName);
+#ifndef FASTBOOT
 		RtlSleep(2000);
+#endif
 
 		if (gDriverConfig.WaitForKeyPress)
 		{
