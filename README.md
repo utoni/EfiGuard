@@ -75,9 +75,13 @@ EfiGuard requires EDK2 to build. If you don't have EDK2 installed, follow the st
 4. Run `. ./edksetup.sh`
 5. Run `build -a X64 -t GCC5 -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE -D EFIGUARD_DRIVER_FILENAME='myefidrv.efi'`
 
+Add `-D FASTBOOT=1` to speed up boot process by eliminating most `sleep()`s.
+
 Add `-D EAC_COMPAT_MODE=1` if you want to enable EasyAntiCheat compatibility mode (Experimental!).
 
 Add `-D DO_NOT_DISABLE_PATCHGUARD=1` if you want to leave PatchGuard intact (Experimental!).
+
+All build configurations may also set via top level `Makefile`, see `make help`.
 
 ## Last but not Least
 This will produce `EfiGuardDxe.efi` and `Loader.efi` in `workspace/Build/EfiGuard/RELEASE_VS2019/X64`.
