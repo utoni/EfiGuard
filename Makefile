@@ -26,6 +26,13 @@ endif
 
 all: app efi
 
+clean:
+	$(MAKE) -C Application/EfiDSEFix -f Makefile.mingw clean
+	cd '$(EDK2DIR)' && \
+		. $(EDK2SETUPSCRIPT) && \
+			build -a X64 -t GCC5 -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE \
+				$(EDK2FLAGS) clean
+
 app:
 	$(MAKE) -C Application/EfiDSEFix -f Makefile.mingw all
 
@@ -63,4 +70,4 @@ help:
 	@echo 'EFIGUARD_DRIVER_FILENAME  = $(EFIGUARD_DRIVER_FILENAME)'
 	@echo 'EDK2FLAGS                 = $(EDK2FLAGS)'
 
-.PHONY: all app efi install install-app install-efi help
+.PHONY: clean all app efi install install-app install-efi help

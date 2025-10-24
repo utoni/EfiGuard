@@ -1,0 +1,58 @@
+name: Build
+
+on:
+  schedule:
+    # At the end of every day
+    - cron: '0 0 * * *'
+  push:
+    branches: [ "my", "test" ]
+  pull_request:
+    branches: [ "my", "test" ]
+    types: [opened, synchronize, reopened]
+  release:
+    types: [created]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 1
+      - name: Install Prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install gcc g++ g++-mingw-w64 git make nasm python3 uuid-dev
+      - name: Setup EDK2
+        run: |
+          git clone --recursive --depth=1 https://github.com/tianocore/edk2 ../edk2
+          make -C ../edk2/BaseTools/Source/C
+      - name: Setup EfiGuardPkg
+        run: |
+          cd EfiGuardDxe/Zydis
+          git submodule update --init
+          cd ../..
+          cp -rfv . ../edk2/EfiGuardPkg
+      - name: Build EfiGuard (default)
+        run: |
+          make -C ../edk2/EfiGuardPkg clean
+          make -C ../edk2/EfiGuardPkg all EAC_COMPAT_MODE=0
+      - name: Install EfiGuard (default)
+        run: |
+          mkdir -p ./out/default
+          make -C ../edk2/EfiGuardPkg install DESTDIR=$(realpath ./out/default)
+      - name: Build EfiGuard (EAC Compat Mode)
+        run: |
+          make -C ../edk2/EfiGuardPkg clean
+          make -C ../edk2/EfiGuardPkg all EAC_COMPAT_MODE=1
+      - name: Install EfiGuard (EAC Compat Mode)
+        run: |
+          mkdir -p ./out/eac
+          make -C ../edk2/EfiGuardPkg install DESTDIR=$(realpath ./out/eac)
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: EfiGuard
+          path: out/*
