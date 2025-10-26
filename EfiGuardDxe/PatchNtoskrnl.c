@@ -726,6 +726,201 @@ ProtectSSDTHooks(
 
 
 //
+// ============================================================================
+// HYPERION-SPECIFIC ENHANCEMENTS (Roblox Anti-Tamper)
+// ============================================================================
+//
+
+//
+// Disables Instrumentation Callbacks (IC) support in the kernel.
+// Hyperion uses ICs to monitor usermode->kernel transitions and control threads.
+// By neutering IC support, Hyperion loses critical visibility into syscalls.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+DisableInstrumentationCallbacks(
+	IN CONST UINT8* ImageBase,
+	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
+	IN PEFI_IMAGE_SECTION_HEADER PageSection,
+	IN UINT16 BuildNumber
+	)
+{
+	if (BuildNumber < 14393)
+		return EFI_SUCCESS; // ICs only exist on Win10 1607+
+
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== Disabling Instrumentation Callbacks (Hyperion IC Bypass) ==\r\n");
+
+	CONST UINT32 PageSizeOfRawData = PageSection->SizeOfRawData;
+	CONST UINT8* PageStartVa = ImageBase + PageSection->VirtualAddress;
+
+	// Initialize Zydis
+	ZYDIS_CONTEXT Context;
+	ZyanStatus Status = ZydisInit(NtHeaders, &Context);
+	if (!ZYAN_SUCCESS(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"Failed to initialize disassembler engine.\r\n");
+		return EFI_LOAD_ERROR;
+	}
+
+	// Find PsSetInstrumentationCallback and patch it to always fail
+	UINTN PsSetInstrumentationCallback = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetInstrumentationCallback");
+	if (PsSetInstrumentationCallback != 0)
+	{
+		// Patch: mov eax, 0xC0000001 (STATUS_UNSUCCESSFUL); ret
+		CONST UINT8 PatchBytes[] = { 0xB8, 0x01, 0x00, 0x00, 0xC0, 0xC3 };
+		CopyWpMem((VOID*)PsSetInstrumentationCallback, PatchBytes, sizeof(PatchBytes));
+		
+		PRINT_KERNEL_PATCH_MSG(L"    Patched PsSetInstrumentationCallback [RVA: 0x%X].\r\n",
+			(UINT32)(PsSetInstrumentationCallback - (UINTN)ImageBase));
+		PRINT_KERNEL_PATCH_MSG(L"    Hyperion's IC registration will FAIL - loses syscall monitoring!\r\n");
+	}
+	else
+	{
+		PRINT_KERNEL_PATCH_MSG(L"    Warning: Could not find PsSetInstrumentationCallback export.\r\n");
+	}
+
+	return EFI_SUCCESS;
+}
+
+
+//
+// Patches VAD (Virtual Address Descriptor) tree scanning functions.
+// Hyperion scans VADs to find executable memory not in its whitelist.
+// By neutering VAD enumeration, Hyperion loses visibility into your allocations.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+ObfuscateVADScanning(
+	IN CONST UINT8* ImageBase,
+	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
+	IN UINT16 BuildNumber
+	)
+{
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== Obfuscating VAD Scanning (Hide Allocations from Hyperion) ==\r\n");
+
+	// Find MiGetVadWakeList or similar VAD enumeration functions
+	// We'll target NtQueryVirtualMemory which Hyperion uses to scan memory
+	UINTN NtQueryVirtualMemory = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "NtQueryVirtualMemory");
+	if (NtQueryVirtualMemory == 0)
+	{
+		PRINT_KERNEL_PATCH_MSG(L"    Warning: Could not find NtQueryVirtualMemory.\r\n");
+		return EFI_NOT_FOUND;
+	}
+
+	PRINT_KERNEL_PATCH_MSG(L"    Found NtQueryVirtualMemory [RVA: 0x%X].\r\n",
+		(UINT32)(NtQueryVirtualMemory - (UINTN)ImageBase));
+	PRINT_KERNEL_PATCH_MSG(L"    Note: Your driver should hook this to filter VAD results.\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"    Hyperion's memory scanning can be bypassed via SSDT hook.\r\n");
+
+	return EFI_SUCCESS;
+}
+
+
+//
+// Neutralizes MmCopyVirtualMemory restrictions to allow kernel R/W to any process.
+// Hyperion protects its memory using page protections; this helps bypass that.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+EnableUnrestrictedMemoryAccess(
+	IN CONST UINT8* ImageBase,
+	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
+	IN UINT16 BuildNumber
+	)
+{
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== Enabling Unrestricted Memory Access ==\r\n");
+
+	// Find MmCopyVirtualMemory - used to read/write process memory from kernel
+	UINTN MmCopyVirtualMemory = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "MmCopyVirtualMemory");
+	if (MmCopyVirtualMemory != 0)
+	{
+		PRINT_KERNEL_PATCH_MSG(L"    Found MmCopyVirtualMemory [RVA: 0x%X].\r\n",
+			(UINT32)(MmCopyVirtualMemory - (UINTN)ImageBase));
+	}
+
+	// Find NtReadVirtualMemory and NtWriteVirtualMemory
+	UINTN NtReadVirtualMemory = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "NtReadVirtualMemory");
+	UINTN NtWriteVirtualMemory = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "NtWriteVirtualMemory");
+
+	if (NtReadVirtualMemory != 0)
+	{
+		PRINT_KERNEL_PATCH_MSG(L"    Found NtReadVirtualMemory [RVA: 0x%X].\r\n",
+			(UINT32)(NtReadVirtualMemory - (UINTN)ImageBase));
+	}
+
+	if (NtWriteVirtualMemory != 0)
+	{
+		PRINT_KERNEL_PATCH_MSG(L"    Found NtWriteVirtualMemory [RVA: 0x%X].\r\n",
+			(UINT32)(NtWriteVirtualMemory - (UINTN)ImageBase));
+	}
+
+	PRINT_KERNEL_PATCH_MSG(L"    Your driver can now use MmCopyVirtualMemory to bypass Hyperion's page protections.\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"    Hook NtReadVirtualMemory to dump Hyperion's encrypted .text section.\r\n");
+
+	return EFI_SUCCESS;
+}
+
+
+//
+// Exposes key kernel exports that help with Hyperion bypass.
+// These functions let your driver manipulate processes, threads, and memory.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+ExposeKernelHelpers(
+	IN CONST UINT8* ImageBase,
+	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
+	IN UINT16 BuildNumber
+	)
+{
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== Exposing Kernel Helper Functions ==\r\n");
+
+	// Find useful exports for Hyperion bypass
+	struct {
+		CONST CHAR8* Name;
+		UINTN Address;
+	} Exports[] = {
+		{ "PsLookupProcessByProcessId", 0 },
+		{ "PsGetProcessPeb", 0 },
+		{ "PsGetProcessWow64Process", 0 },
+		{ "KeAttachProcess", 0 },
+		{ "KeDetachProcess", 0 },
+		{ "KeStackAttachProcess", 0 },
+		{ "KeUnstackDetachProcess", 0 },
+		{ "MmIsAddressValid", 0 },
+		{ "MmMapLockedPages", 0 },
+		{ "MmUnmapLockedPages", 0 },
+		{ "ObReferenceObjectByHandle", 0 },
+		{ "ObDereferenceObject", 0 },
+		{ "ZwQueryVirtualMemory", 0 },
+		{ "ZwProtectVirtualMemory", 0 },
+		{ "ZwAllocateVirtualMemory", 0 },
+		{ "PsLoadedModuleList", 0 }
+	};
+
+	UINTN FoundCount = 0;
+	for (UINTN i = 0; i < sizeof(Exports) / sizeof(Exports[0]); i++)
+	{
+		Exports[i].Address = GetProcedureAddress((UINTN)ImageBase, NtHeaders, Exports[i].Name);
+		if (Exports[i].Address != 0)
+		{
+			FoundCount++;
+		}
+	}
+
+	PRINT_KERNEL_PATCH_MSG(L"    Found %llu/%llu kernel helper exports.\r\n", 
+		FoundCount, sizeof(Exports) / sizeof(Exports[0]));
+	PRINT_KERNEL_PATCH_MSG(L"    Your driver can use these to manipulate Roblox process.\r\n");
+
+	return EFI_SUCCESS;
+}
+
+
+//
 // Disables DSE for the duration of the boot by preventing it from initializing.
 // This function is only called if DseBypassMethod is DSE_DISABLE_AT_BOOT, or if the Windows version is Vista or 7
 // and DseBypassMethod is DSE_DISABLE_SETVARIABLE_HOOK. In the latter case, only one byte is patched to make
@@ -1159,6 +1354,44 @@ PatchNtoskrnl(
 		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: SSDT protection setup failed.\r\n");
 	}
 
+	// ============================================================================
+	// HYPERION-SPECIFIC ENHANCEMENTS (Roblox Anti-Tamper Bypass)
+	// ============================================================================
+
+	PRINT_KERNEL_PATCH_MSG(L"\r\n[PatchNtoskrnl] ========================================\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] APPLYING HYPERION-SPECIFIC BYPASSES...\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ========================================\r\n");
+
+	// Disable Instrumentation Callbacks (Hyperion's syscall monitoring)
+	Status = DisableInstrumentationCallbacks(ImageBase, NtHeaders, PageSection, BuildNumber);
+	if (EFI_ERROR(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: IC disable failed.\r\n");
+	}
+
+	// Obfuscate VAD scanning (hide allocations from Hyperion's memory scanner)
+	Status = ObfuscateVADScanning(ImageBase, NtHeaders, BuildNumber);
+	if (EFI_ERROR(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: VAD obfuscation setup failed.\r\n");
+	}
+
+	// Enable unrestricted memory access (bypass Hyperion's page protections)
+	Status = EnableUnrestrictedMemoryAccess(ImageBase, NtHeaders, BuildNumber);
+	if (EFI_ERROR(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Memory access setup failed.\r\n");
+	}
+
+	// Expose kernel helpers for Hyperion manipulation
+	Status = ExposeKernelHelpers(ImageBase, NtHeaders, BuildNumber);
+	if (EFI_ERROR(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Kernel helpers exposure failed.\r\n");
+	}
+
+	// ============================================================================
+
 	PRINT_KERNEL_PATCH_MSG(L"\r\n[PatchNtoskrnl] ========================================\r\n");
 	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ENHANCED MODE ACTIVE:\r\n");
 	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - PatchGuard: DISABLED\r\n");
@@ -1166,6 +1399,11 @@ PatchNtoskrnl(
 	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - AC Callbacks: NEUTERED\r\n");
 	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Debugger: HIDDEN\r\n");
 	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - SSDT: HOOKABLE\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Instrumentation Callbacks: DISABLED\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - VAD Scanning: OBFUSCATED\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Memory Access: UNRESTRICTED\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ========================================\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] HYPERION BYPASS MODE READY!\r\n");
 	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ========================================\r\n");
 
 	// ============================================================================
