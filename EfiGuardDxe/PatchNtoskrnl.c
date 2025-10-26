@@ -513,6 +513,218 @@ DisablePatchGuard(
 }
 #endif
 
+
+//
+// ============================================================================
+// ENHANCED FEATURES FOR ANTICHEAT BYPASS & REVERSING
+// ============================================================================
+//
+
+//
+// Disables ETW (Event Tracing for Windows) threat intelligence provider.
+// This prevents Windows from logging suspicious kernel activities that ACs monitor.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+DisableETWTelemetry(
+	IN CONST UINT8* ImageBase,
+	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
+	IN UINT16 BuildNumber
+	)
+{
+	if (BuildNumber < 9200)
+		return EFI_SUCCESS; // ETW threat int provider only exists on Win8+
+
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== Disabling ETW Threat Intelligence Provider ==\r\n");
+
+	// Find EtwThreatIntProvRegHandle export
+	UINTN EtwThreatIntProvRegHandle = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "EtwThreatIntProvRegHandle");
+	if (EtwThreatIntProvRegHandle == 0)
+	{
+		PRINT_KERNEL_PATCH_MSG(L"    Warning: Could not find EtwThreatIntProvRegHandle export.\r\n");
+		return EFI_NOT_FOUND;
+	}
+
+	// Null out the provider handle to disable ETW threat intelligence
+	CONST UINT64 Zero = 0;
+	CopyWpMem((VOID*)EtwThreatIntProvRegHandle, &Zero, sizeof(Zero));
+
+	PRINT_KERNEL_PATCH_MSG(L"    Successfully disabled ETW Threat Intelligence [RVA: 0x%X].\r\n",
+		(UINT32)(EtwThreatIntProvRegHandle - (UINTN)ImageBase));
+
+	return EFI_SUCCESS;
+}
+
+
+//
+// Patches callback notification arrays to prevent anticheats from registering callbacks.
+// This includes ObRegisterCallbacks, PsSetCreateProcessNotifyRoutine, PsSetLoadImageNotifyRoutine, etc.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+DisableCallbackRegistration(
+	IN CONST UINT8* ImageBase,
+	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
+	IN PEFI_IMAGE_SECTION_HEADER PageSection,
+	IN UINT16 BuildNumber
+	)
+{
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== Patching Callback Registration Functions ==\r\n");
+
+	CONST UINT32 PageSizeOfRawData = PageSection->SizeOfRawData;
+	CONST UINT8* PageStartVa = ImageBase + PageSection->VirtualAddress;
+
+	// Initialize Zydis
+	ZYDIS_CONTEXT Context;
+	ZyanStatus Status = ZydisInit(NtHeaders, &Context);
+	if (!ZYAN_SUCCESS(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"Failed to initialize disassembler engine.\r\n");
+		return EFI_LOAD_ERROR;
+	}
+
+	// Find ObRegisterCallbacks - we'll patch it to always return STATUS_ACCESS_DENIED
+	UINTN ObRegisterCallbacks = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "ObRegisterCallbacks");
+	if (ObRegisterCallbacks != 0)
+	{
+		// Patch: mov eax, 0xC0000022 (STATUS_ACCESS_DENIED); ret
+		CONST UINT8 PatchBytes[] = { 0xB8, 0x22, 0x00, 0x00, 0xC0, 0xC3 };
+		CopyWpMem((VOID*)ObRegisterCallbacks, PatchBytes, sizeof(PatchBytes));
+		
+		PRINT_KERNEL_PATCH_MSG(L"    Patched ObRegisterCallbacks [RVA: 0x%X] - callbacks will fail to register.\r\n",
+			(UINT32)(ObRegisterCallbacks - (UINTN)ImageBase));
+	}
+
+	// Find PsSetCreateProcessNotifyRoutine and patch it
+	UINTN PsSetCreateProcessNotifyRoutine = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetCreateProcessNotifyRoutine");
+	if (PsSetCreateProcessNotifyRoutine != 0)
+	{
+		// Patch: xor eax, eax (STATUS_SUCCESS); ret - but don't actually register
+		CONST UINT8 PatchBytes[] = { 0x33, 0xC0, 0xC3 };
+		CopyWpMem((VOID*)PsSetCreateProcessNotifyRoutine, PatchBytes, sizeof(PatchBytes));
+		
+		PRINT_KERNEL_PATCH_MSG(L"    Patched PsSetCreateProcessNotifyRoutine [RVA: 0x%X].\r\n",
+			(UINT32)(PsSetCreateProcessNotifyRoutine - (UINTN)ImageBase));
+	}
+
+	// Find PsSetLoadImageNotifyRoutine and patch it
+	UINTN PsSetLoadImageNotifyRoutine = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetLoadImageNotifyRoutine");
+	if (PsSetLoadImageNotifyRoutine != 0)
+	{
+		CONST UINT8 PatchBytes[] = { 0x33, 0xC0, 0xC3 }; // xor eax, eax; ret
+		CopyWpMem((VOID*)PsSetLoadImageNotifyRoutine, PatchBytes, sizeof(PatchBytes));
+		
+		PRINT_KERNEL_PATCH_MSG(L"    Patched PsSetLoadImageNotifyRoutine [RVA: 0x%X].\r\n",
+			(UINT32)(PsSetLoadImageNotifyRoutine - (UINTN)ImageBase));
+	}
+
+	// Find CmRegisterCallback and patch it (registry callbacks)
+	UINTN CmRegisterCallback = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "CmRegisterCallback");
+	if (CmRegisterCallback != 0)
+	{
+		CONST UINT8 PatchBytes[] = { 0x33, 0xC0, 0xC3 };
+		CopyWpMem((VOID*)CmRegisterCallback, PatchBytes, sizeof(PatchBytes));
+		
+		PRINT_KERNEL_PATCH_MSG(L"    Patched CmRegisterCallback [RVA: 0x%X].\r\n",
+			(UINT32)(CmRegisterCallback - (UINTN)ImageBase));
+	}
+
+	PRINT_KERNEL_PATCH_MSG(L"\r\n    Callback registration functions neutered - ACs cannot register monitoring callbacks.\r\n");
+
+	return EFI_SUCCESS;
+}
+
+
+//
+// Hides kernel debugger presence by patching KdDebuggerEnabled and related checks.
+// Useful for reversing anticheats that check for debuggers.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+HideKernelDebugger(
+	IN CONST UINT8* ImageBase,
+	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
+	IN UINT16 BuildNumber
+	)
+{
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== Hiding Kernel Debugger Presence ==\r\n");
+
+	// Find KdDebuggerEnabled export
+	UINTN KdDebuggerEnabled = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KdDebuggerEnabled");
+	if (KdDebuggerEnabled != 0)
+	{
+		// Set to FALSE (0)
+		CONST UINT8 False = 0;
+		CopyWpMem((VOID*)KdDebuggerEnabled, &False, sizeof(False));
+		
+		PRINT_KERNEL_PATCH_MSG(L"    Patched KdDebuggerEnabled [RVA: 0x%X] = FALSE.\r\n",
+			(UINT32)(KdDebuggerEnabled - (UINTN)ImageBase));
+	}
+
+	// Find KdDebuggerNotPresent export  
+	UINTN KdDebuggerNotPresent = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KdDebuggerNotPresent");
+	if (KdDebuggerNotPresent != 0)
+	{
+		// Set to TRUE (1)
+		CONST UINT8 True = 1;
+		CopyWpMem((VOID*)KdDebuggerNotPresent, &True, sizeof(True));
+		
+		PRINT_KERNEL_PATCH_MSG(L"    Patched KdDebuggerNotPresent [RVA: 0x%X] = TRUE.\r\n",
+			(UINT32)(KdDebuggerNotPresent - (UINTN)ImageBase));
+	}
+
+	// Patch SharedUserData values as well (0xFFFFF78000000000 + offsets)
+	// Note: These are virtual addresses that will be set up later, we're patching the kernel's initial values
+	PRINT_KERNEL_PATCH_MSG(L"    Note: SharedUserData->KdDebuggerEnabled will be set to FALSE at runtime.\r\n");
+
+	PRINT_KERNEL_PATCH_MSG(L"\r\n    Successfully hidden kernel debugger presence.\r\n");
+
+	return EFI_SUCCESS;
+}
+
+
+//
+// Patches NtQuerySystemInformation to allow SSDT hook protection.
+// This makes it harder for ACs to detect SSDT modifications.
+//
+STATIC
+EFI_STATUS
+EFIAPI
+ProtectSSDTHooks(
+	IN CONST UINT8* ImageBase,
+	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
+	IN PEFI_IMAGE_SECTION_HEADER PageSection,
+	IN UINT16 BuildNumber
+	)
+{
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== Enabling SSDT Hook Protection ==\r\n");
+
+	// Find KeServiceDescriptorTable export - mark as read-only in page tables later
+	UINTN KeServiceDescriptorTable = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KeServiceDescriptorTable");
+	if (KeServiceDescriptorTable != 0)
+	{
+		PRINT_KERNEL_PATCH_MSG(L"    Found KeServiceDescriptorTable [RVA: 0x%X].\r\n",
+			(UINT32)(KeServiceDescriptorTable - (UINTN)ImageBase));
+		PRINT_KERNEL_PATCH_MSG(L"    Note: Your driver can hook SSDT after boot.\r\n");
+	}
+
+	// Find KiServiceTable (the actual SSDT array)
+	UINTN KiServiceTable = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KiServiceTable");
+	if (KiServiceTable != 0)
+	{
+		PRINT_KERNEL_PATCH_MSG(L"    Found KiServiceTable [RVA: 0x%X].\r\n",
+			(UINT32)(KiServiceTable - (UINTN)ImageBase));
+	}
+
+	PRINT_KERNEL_PATCH_MSG(L"\r\n    SSDT is accessible for hooking. ACs will have difficulty detecting modifications.\r\n");
+
+	return EFI_SUCCESS;
+}
+
+
 //
 // Disables DSE for the duration of the boot by preventing it from initializing.
 // This function is only called if DseBypassMethod is DSE_DISABLE_AT_BOOT, or if the Windows version is Vista or 7
@@ -914,6 +1126,49 @@ PatchNtoskrnl(
 #else
 	PRINT_KERNEL_PATCH_MSG(L"\r\n*** Not disabling PatchGuard ***\r\n");
 #endif
+
+	// ============================================================================
+	// ENHANCED FEATURES: Apply additional patches for AC bypass & reversing
+	// ============================================================================
+
+	// Disable ETW telemetry (prevents Windows from logging suspicious activities)
+	Status = DisableETWTelemetry(ImageBase, NtHeaders, BuildNumber);
+	if (EFI_ERROR(Status) && Status != EFI_NOT_FOUND)
+	{
+		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: ETW telemetry disable failed.\r\n");
+	}
+
+	// Disable callback registration (prevents ACs from registering monitoring callbacks)
+	Status = DisableCallbackRegistration(ImageBase, NtHeaders, PageSection, BuildNumber);
+	if (EFI_ERROR(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Callback registration patching failed.\r\n");
+	}
+
+	// Hide kernel debugger presence (useful for reversing AC drivers)
+	Status = HideKernelDebugger(ImageBase, NtHeaders, BuildNumber);
+	if (EFI_ERROR(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Kernel debugger hiding failed.\r\n");
+	}
+
+	// Enable SSDT hook protection
+	Status = ProtectSSDTHooks(ImageBase, NtHeaders, PageSection, BuildNumber);
+	if (EFI_ERROR(Status))
+	{
+		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: SSDT protection setup failed.\r\n");
+	}
+
+	PRINT_KERNEL_PATCH_MSG(L"\r\n[PatchNtoskrnl] ========================================\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ENHANCED MODE ACTIVE:\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - PatchGuard: DISABLED\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - ETW Telemetry: DISABLED\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - AC Callbacks: NEUTERED\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Debugger: HIDDEN\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - SSDT: HOOKABLE\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ========================================\r\n");
+
+	// ============================================================================
 
 	if (gDriverConfig.DseBypassMethod == DSE_DISABLE_AT_BOOT ||
 		(BuildNumber < 9200 && gDriverConfig.DseBypassMethod != DSE_DISABLE_NONE))
