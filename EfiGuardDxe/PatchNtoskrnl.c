@@ -344,7 +344,7 @@ DisablePatchGuard(
 			}
 
 			// Check if this is 'call KiMcaDeferredRecoveryService'
-			ZyanU64 OperandAddress = 0;	
+			ZyanU64 OperandAddress = 0;
 			if (Context.Instruction.mnemonic == ZYDIS_MNEMONIC_CALL &&
 				ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&Context.Instruction, &Context.Operands[0], Context.InstructionAddress, &OperandAddress)) &&
 				OperandAddress == (UINTN)KiMcaDeferredRecoveryService &&
@@ -405,7 +405,7 @@ DisablePatchGuard(
 			ASSERT(SigKiSwInterrupt[SigKiSwInterruptCallOffset] == 0xE8 && SigKiSwInterrupt[SigKiSwInterruptCliOffset] == 0xFA);
 			CONST INT32 Relative = *(INT32*)(KiSwInterruptPatternAddress + SigKiSwInterruptCallOffset + 1);
 			KiSwInterruptDispatchAddress = KiSwInterruptPatternAddress + SigKiSwInterruptCliOffset + Relative;
-			
+
 			PRINT_KERNEL_PATCH_MSG(L"    Found KiSwInterrupt pattern at 0x%llX.\r\n", (UINTN)KiSwInterruptPatternAddress);
 		}
 
@@ -539,7 +539,7 @@ DisableETWTelemetry(
 	PRINT_KERNEL_PATCH_MSG(L"\r\n== Disabling ETW Threat Intelligence Provider ==\r\n");
 
 	// Find EtwThreatIntProvRegHandle export
-	UINTN EtwThreatIntProvRegHandle = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "EtwThreatIntProvRegHandle");
+	UINTN EtwThreatIntProvRegHandle = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "EtwThreatIntProvRegHandle");
 	if (EtwThreatIntProvRegHandle == 0)
 	{
 		PRINT_KERNEL_PATCH_MSG(L"    Warning: Could not find EtwThreatIntProvRegHandle export.\r\n");
@@ -573,9 +573,6 @@ DisableCallbackRegistration(
 {
 	PRINT_KERNEL_PATCH_MSG(L"\r\n== Patching Callback Registration Functions ==\r\n");
 
-	CONST UINT32 PageSizeOfRawData = PageSection->SizeOfRawData;
-	CONST UINT8* PageStartVa = ImageBase + PageSection->VirtualAddress;
-
 	// Initialize Zydis
 	ZYDIS_CONTEXT Context;
 	ZyanStatus Status = ZydisInit(NtHeaders, &Context);
@@ -586,47 +583,47 @@ DisableCallbackRegistration(
 	}
 
 	// Find ObRegisterCallbacks - we'll patch it to always return STATUS_ACCESS_DENIED
-	UINTN ObRegisterCallbacks = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "ObRegisterCallbacks");
+	UINTN ObRegisterCallbacks = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "ObRegisterCallbacks");
 	if (ObRegisterCallbacks != 0)
 	{
 		// Patch: mov eax, 0xC0000022 (STATUS_ACCESS_DENIED); ret
 		CONST UINT8 PatchBytes[] = { 0xB8, 0x22, 0x00, 0x00, 0xC0, 0xC3 };
 		CopyWpMem((VOID*)ObRegisterCallbacks, PatchBytes, sizeof(PatchBytes));
-		
+
 		PRINT_KERNEL_PATCH_MSG(L"    Patched ObRegisterCallbacks [RVA: 0x%X] - callbacks will fail to register.\r\n",
 			(UINT32)(ObRegisterCallbacks - (UINTN)ImageBase));
 	}
 
 	// Find PsSetCreateProcessNotifyRoutine and patch it
-	UINTN PsSetCreateProcessNotifyRoutine = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetCreateProcessNotifyRoutine");
+	UINTN PsSetCreateProcessNotifyRoutine = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetCreateProcessNotifyRoutine");
 	if (PsSetCreateProcessNotifyRoutine != 0)
 	{
 		// Patch: xor eax, eax (STATUS_SUCCESS); ret - but don't actually register
 		CONST UINT8 PatchBytes[] = { 0x33, 0xC0, 0xC3 };
 		CopyWpMem((VOID*)PsSetCreateProcessNotifyRoutine, PatchBytes, sizeof(PatchBytes));
-		
+
 		PRINT_KERNEL_PATCH_MSG(L"    Patched PsSetCreateProcessNotifyRoutine [RVA: 0x%X].\r\n",
 			(UINT32)(PsSetCreateProcessNotifyRoutine - (UINTN)ImageBase));
 	}
 
 	// Find PsSetLoadImageNotifyRoutine and patch it
-	UINTN PsSetLoadImageNotifyRoutine = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetLoadImageNotifyRoutine");
+	UINTN PsSetLoadImageNotifyRoutine = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetLoadImageNotifyRoutine");
 	if (PsSetLoadImageNotifyRoutine != 0)
 	{
 		CONST UINT8 PatchBytes[] = { 0x33, 0xC0, 0xC3 }; // xor eax, eax; ret
 		CopyWpMem((VOID*)PsSetLoadImageNotifyRoutine, PatchBytes, sizeof(PatchBytes));
-		
+
 		PRINT_KERNEL_PATCH_MSG(L"    Patched PsSetLoadImageNotifyRoutine [RVA: 0x%X].\r\n",
 			(UINT32)(PsSetLoadImageNotifyRoutine - (UINTN)ImageBase));
 	}
 
 	// Find CmRegisterCallback and patch it (registry callbacks)
-	UINTN CmRegisterCallback = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "CmRegisterCallback");
+	UINTN CmRegisterCallback = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "CmRegisterCallback");
 	if (CmRegisterCallback != 0)
 	{
 		CONST UINT8 PatchBytes[] = { 0x33, 0xC0, 0xC3 };
 		CopyWpMem((VOID*)CmRegisterCallback, PatchBytes, sizeof(PatchBytes));
-		
+
 		PRINT_KERNEL_PATCH_MSG(L"    Patched CmRegisterCallback [RVA: 0x%X].\r\n",
 			(UINT32)(CmRegisterCallback - (UINTN)ImageBase));
 	}
@@ -653,25 +650,25 @@ HideKernelDebugger(
 	PRINT_KERNEL_PATCH_MSG(L"\r\n== Hiding Kernel Debugger Presence ==\r\n");
 
 	// Find KdDebuggerEnabled export
-	UINTN KdDebuggerEnabled = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KdDebuggerEnabled");
+	UINTN KdDebuggerEnabled = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KdDebuggerEnabled");
 	if (KdDebuggerEnabled != 0)
 	{
 		// Set to FALSE (0)
 		CONST UINT8 False = 0;
 		CopyWpMem((VOID*)KdDebuggerEnabled, &False, sizeof(False));
-		
+
 		PRINT_KERNEL_PATCH_MSG(L"    Patched KdDebuggerEnabled [RVA: 0x%X] = FALSE.\r\n",
 			(UINT32)(KdDebuggerEnabled - (UINTN)ImageBase));
 	}
 
-	// Find KdDebuggerNotPresent export  
-	UINTN KdDebuggerNotPresent = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KdDebuggerNotPresent");
+	// Find KdDebuggerNotPresent export
+	UINTN KdDebuggerNotPresent = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KdDebuggerNotPresent");
 	if (KdDebuggerNotPresent != 0)
 	{
 		// Set to TRUE (1)
 		CONST UINT8 True = 1;
 		CopyWpMem((VOID*)KdDebuggerNotPresent, &True, sizeof(True));
-		
+
 		PRINT_KERNEL_PATCH_MSG(L"    Patched KdDebuggerNotPresent [RVA: 0x%X] = TRUE.\r\n",
 			(UINT32)(KdDebuggerNotPresent - (UINTN)ImageBase));
 	}
@@ -703,7 +700,7 @@ ProtectSSDTHooks(
 	PRINT_KERNEL_PATCH_MSG(L"\r\n== Enabling SSDT Hook Protection ==\r\n");
 
 	// Find KeServiceDescriptorTable export - mark as read-only in page tables later
-	UINTN KeServiceDescriptorTable = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KeServiceDescriptorTable");
+	UINTN KeServiceDescriptorTable = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KeServiceDescriptorTable");
 	if (KeServiceDescriptorTable != 0)
 	{
 		PRINT_KERNEL_PATCH_MSG(L"    Found KeServiceDescriptorTable [RVA: 0x%X].\r\n",
@@ -712,7 +709,7 @@ ProtectSSDTHooks(
 	}
 
 	// Find KiServiceTable (the actual SSDT array)
-	UINTN KiServiceTable = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KiServiceTable");
+	UINTN KiServiceTable = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KiServiceTable");
 	if (KiServiceTable != 0)
 	{
 		PRINT_KERNEL_PATCH_MSG(L"    Found KiServiceTable [RVA: 0x%X].\r\n",
@@ -752,14 +749,14 @@ DisableInstrumentationCallbacks(
 	PRINT_KERNEL_PATCH_MSG(L"\r\n== BOOTKIT: Hijacking Instrumentation Callback Registration ==\r\n");
 
 	// Find PsSetInstrumentationCallback and patch it to FAKE SUCCESS
-	UINTN PsSetInstrumentationCallback = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetInstrumentationCallback");
+	UINTN PsSetInstrumentationCallback = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetInstrumentationCallback");
 	if (PsSetInstrumentationCallback != 0)
 	{
 		// Patch: xor eax, eax (STATUS_SUCCESS); ret
 		// Hyperion THINKS it registered, but callback is NEVER installed
 		CONST UINT8 PatchBytes[] = { 0x33, 0xC0, 0xC3 }; // xor eax, eax; ret
 		CopyWpMem((VOID*)PsSetInstrumentationCallback, PatchBytes, sizeof(PatchBytes));
-		
+
 		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Patched PsSetInstrumentationCallback [RVA: 0x%X].\r\n",
 			(UINT32)(PsSetInstrumentationCallback - (UINTN)ImageBase));
 		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Hyperion's IC registration returns SUCCESS but does NOTHING!\r\n");
@@ -821,7 +818,7 @@ PatchPageProtectionLies(
 	for (UINT32 offset = 0; offset < PageSizeOfRawData - sizeof(ConflictCheckPattern); offset++)
 	{
 		CONST UINT8* currentPos = PageStartVa + offset;
-		
+
 		// Look for protection comparison patterns
 		if (currentPos[0] == 0x3B && currentPos[2] == 0x0F && currentPos[3] == 0x84)
 		{
@@ -829,7 +826,7 @@ PatchPageProtectionLies(
 			// Change conditional jump to unconditional jump (bypass conflict detection)
 			UINT8 patchBytes[] = { 0x90, 0x90 }; // NOP out the comparison
 			CopyWpMem((VOID*)currentPos, patchBytes, sizeof(patchBytes));
-			
+
 			foundPatterns++;
 			if (foundPatterns >= 3)
 				break; // Patched enough conflict checks
@@ -847,12 +844,12 @@ PatchPageProtectionLies(
 	}
 
 	// Additionally: Patch NtProtectVirtualMemory success validation
-	UINTN NtProtectVirtualMemory = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "NtProtectVirtualMemory");
+	UINTN NtProtectVirtualMemory = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "NtProtectVirtualMemory");
 	if (NtProtectVirtualMemory != 0)
 	{
 		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Found NtProtectVirtualMemory [RVA: 0x%X].\r\n",
 			(UINT32)(NtProtectVirtualMemory - (UINTN)ImageBase));
-		
+
 		// Note: Full patching requires more advanced disassembly
 		// For now, we've neutered the internal conflict detection
 		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Internal conflict detection DISABLED.\r\n");
@@ -883,7 +880,7 @@ PatchMemoryQueryLies(
 	PRINT_KERNEL_PATCH_MSG(L"\r\n== BOOTKIT: Patching Memory Query to LIE ==\r\n");
 
 	// Find NtQueryVirtualMemory
-	UINTN NtQueryVirtualMemory = GetProcedureAddress((UINTN)ImageBase, NtHeaders, "NtQueryVirtualMemory");
+	UINTN NtQueryVirtualMemory = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "NtQueryVirtualMemory");
 	if (NtQueryVirtualMemory == 0)
 	{
 		PRINT_KERNEL_PATCH_MSG(L"    Warning: Could not find NtQueryVirtualMemory.\r\n");
@@ -907,11 +904,11 @@ PatchMemoryQueryLies(
 	// This requires finding the MiQueryAddressState call or similar
 
 	CONST UINT8* FuncStart = (CONST UINT8*)NtQueryVirtualMemory;
-	
+
 	// Search first 0x200 bytes for protection flag assignment
 	// Pattern: mov [reg+offset], protection_value
 	BOOLEAN foundProtectSet = FALSE;
-	
+
 	for (UINTN i = 0; i < 0x200; i++)
 	{
 		// Look for: mov dword ptr [reg+4], eax (where offset 4 is MEMORY_BASIC_INFORMATION.Protect)
@@ -981,14 +978,14 @@ ExposeKernelHelpers(
 	UINTN FoundCount = 0;
 	for (UINTN i = 0; i < sizeof(Exports) / sizeof(Exports[0]); i++)
 	{
-		Exports[i].Address = GetProcedureAddress((UINTN)ImageBase, NtHeaders, Exports[i].Name);
+		Exports[i].Address = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, Exports[i].Name);
 		if (Exports[i].Address != 0)
 		{
 			FoundCount++;
 		}
 	}
 
-	PRINT_KERNEL_PATCH_MSG(L"    Found %llu/%llu kernel helper exports.\r\n", 
+	PRINT_KERNEL_PATCH_MSG(L"    Found %llu/%llu kernel helper exports.\r\n",
 		FoundCount, sizeof(Exports) / sizeof(Exports[0]));
 	PRINT_KERNEL_PATCH_MSG(L"    Your driver can use these to manipulate Roblox process.\r\n");
 
@@ -1350,7 +1347,7 @@ PatchNtoskrnl(
 			PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ERROR: Unsupported kernel image version.\r\n");
 			return EFI_UNSUPPORTED;
 		}
-		
+
 		if ((FileFlags & VS_FF_DEBUG) != 0)
 		{
 			// Do not patch checked kernels. There is too much difference in PG and DSE initialization code due to missing optimizations.
