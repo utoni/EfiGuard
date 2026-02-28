@@ -729,7 +729,7 @@ ProtectSSDTHooks(
 //
 
 //
-// BOOTKIT POWER: Intercept Instrumentation Callback registration.
+// Intercept Instrumentation Callback registration.
 // Hyperion registers a custom IC. We make the kernel LIE - return SUCCESS but do NOTHING.
 // This way Hyperion thinks it succeeded, doesn't self-terminate, but has NO actual monitoring.
 //
@@ -772,14 +772,12 @@ DisableInstrumentationCallbacks(
 
 
 //
-// BOOTKIT POWER: Patch page protection verification AT THE KERNEL LEVEL.
-// We're modifying ntoskrnl.exe BEFORE Windows boots, not running as a driver.
-// This makes the kernel ITSELF lie to Hyperion about page protections.
+// Patch page protection verification
 //
 STATIC
 EFI_STATUS
 EFIAPI
-PatchPageProtectionLies(
+PatchPageProtection(
 	IN CONST UINT8* ImageBase,
 	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
 	IN PEFI_IMAGE_SECTION_HEADER PageSection,
@@ -863,7 +861,7 @@ PatchPageProtectionLies(
 
 
 //
-// BOOTKIT POWER: Patch NtQueryVirtualMemory to hide memory modifications.
+// Patch NtQueryVirtualMemory to hide memory modifications.
 // We're modifying the KERNEL ITSELF, not just using kernel APIs.
 // The kernel will LIE to Hyperion about memory state.
 //
@@ -932,62 +930,6 @@ PatchMemoryQueryLies(
 	// The bootkit can only modify static code, not runtime behavior filtering
 	PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] For runtime filtering, load companion driver after boot.\r\n");
 	PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Driver will intercept at SSDT level (no PatchGuard = safe).\r\n");
-
-	return EFI_SUCCESS;
-}
-
-
-//
-// Exposes key kernel exports that help with Hyperion bypass.
-// These functions let your driver manipulate processes, threads, and memory.
-//
-STATIC
-EFI_STATUS
-EFIAPI
-ExposeKernelHelpers(
-	IN CONST UINT8* ImageBase,
-	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
-	IN UINT16 BuildNumber
-	)
-{
-	PRINT_KERNEL_PATCH_MSG(L"\r\n== Exposing Kernel Helper Functions ==\r\n");
-
-	// Find useful exports for Hyperion bypass
-	struct {
-		CONST CHAR8* Name;
-		UINTN Address;
-	} Exports[] = {
-		{ "PsLookupProcessByProcessId", 0 },
-		{ "PsGetProcessPeb", 0 },
-		{ "PsGetProcessWow64Process", 0 },
-		{ "KeAttachProcess", 0 },
-		{ "KeDetachProcess", 0 },
-		{ "KeStackAttachProcess", 0 },
-		{ "KeUnstackDetachProcess", 0 },
-		{ "MmIsAddressValid", 0 },
-		{ "MmMapLockedPages", 0 },
-		{ "MmUnmapLockedPages", 0 },
-		{ "ObReferenceObjectByHandle", 0 },
-		{ "ObDereferenceObject", 0 },
-		{ "ZwQueryVirtualMemory", 0 },
-		{ "ZwProtectVirtualMemory", 0 },
-		{ "ZwAllocateVirtualMemory", 0 },
-		{ "PsLoadedModuleList", 0 }
-	};
-
-	UINTN FoundCount = 0;
-	for (UINTN i = 0; i < sizeof(Exports) / sizeof(Exports[0]); i++)
-	{
-		Exports[i].Address = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, Exports[i].Name);
-		if (Exports[i].Address != 0)
-		{
-			FoundCount++;
-		}
-	}
-
-	PRINT_KERNEL_PATCH_MSG(L"    Found %llu/%llu kernel helper exports.\r\n",
-		FoundCount, sizeof(Exports) / sizeof(Exports[0]));
-	PRINT_KERNEL_PATCH_MSG(L"    Your driver can use these to manipulate Roblox process.\r\n");
 
 	return EFI_SUCCESS;
 }
@@ -1443,7 +1385,7 @@ PatchNtoskrnl(
 	}
 
 	// BOOTKIT: Patch page protection checks AT KERNEL LEVEL to lie about conflicts
-	Status = PatchPageProtectionLies(ImageBase, NtHeaders, PageSection, BuildNumber);
+	Status = PatchPageProtection(ImageBase, NtHeaders, PageSection, BuildNumber);
 	if (EFI_ERROR(Status))
 	{
 		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Page protection lie patching failed.\r\n");
@@ -1455,41 +1397,6 @@ PatchNtoskrnl(
 	{
 		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Memory query lie patching failed.\r\n");
 	}
-
-	// Expose kernel helpers for Hyperion manipulation
-	Status = ExposeKernelHelpers(ImageBase, NtHeaders, BuildNumber);
-	if (EFI_ERROR(Status))
-	{
-		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Kernel helpers exposure failed.\r\n");
-	}
-
-	// ============================================================================
-
-	PRINT_KERNEL_PATCH_MSG(L"\r\n[PatchNtoskrnl] ========================================\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] BOOTKIT POWER - KERNEL MODIFIED AT BOOT\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ========================================\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   [BOOT-TIME KERNEL PATCHES]\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - PatchGuard: OBLITERATED (before init)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - DSE: BYPASSED (code integrity neutered)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - ETW Telemetry: SILENCED (no logging)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Kernel Debugger: INVISIBLE (detection disabled)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   [KERNEL CODE MODIFICATIONS]\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - PsSetInstrumentationCallback: PATCHED (fakes success)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - MiProtectVirtualMemory: PATCHED (no conflict checks)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - NtQueryVirtualMemory: IDENTIFIED (can be filtered)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Page Protection Conflicts: DISABLED IN KERNEL\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   [RESULT]\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Hyperion's IC registration: SUCCEEDS (but does nothing)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Page protection checks: PASS (conflicts disabled)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Memory integrity scans: CAN'T SEE MODIFICATIONS\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - Syscall monitoring: BLIND (IC not installed)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl]   - AC Callbacks: CAN'T REGISTER (neutered)\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ========================================\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] THE KERNEL ITSELF LIES TO HYPERION.\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] NOT KERNEL MODE - BOOTKIT PATCHING!\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ========================================\r\n");
 
 	// ============================================================================
 
