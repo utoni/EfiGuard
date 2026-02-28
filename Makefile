@@ -30,7 +30,7 @@ clean:
 	$(MAKE) -C Application/EfiDSEFix -f Makefile.mingw clean
 	cd '$(EDK2DIR)' && \
 		. $(EDK2SETUPSCRIPT) && \
-			build -a X64 -t GCC5 -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE \
+			build -a X64 -t GCC -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE \
 				$(EDK2FLAGS) clean
 
 app:
@@ -39,20 +39,22 @@ app:
 efi:
 	cd '$(EDK2DIR)' && \
 		. $(EDK2SETUPSCRIPT) && \
-			build -a X64 -t GCC5 -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE \
+			build -a X64 -t GCC -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE \
 				$(EDK2FLAGS)
 
 install: install-app install-efi
 
 install-app: app
+	mkdir -p '$(DESTDIR)/'
 	$(INSTALL) -m0644 Application/EfiDSEFix/EfiDSEFix.exe '$(DESTDIR)/'
 
 install-efi: efi
+	mkdir -p '$(DESTDIR)/'
 	cd '$(EDK2DIR)' && \
-		$(INSTALL) -m0644 Build/EfiGuard/RELEASE_GCC5/X64/Loader.efi \
+		$(INSTALL) -m0644 Build/EfiGuard/RELEASE_GCC/X64/Loader.efi \
 		'$(DESTDIR)/$(LDRNAME)'
 	cd '$(EDK2DIR)' && \
-		$(INSTALL) -m0644 Build/EfiGuard/RELEASE_GCC5/X64/EfiGuardDxe.efi \
+		$(INSTALL) -m0644 Build/EfiGuard/RELEASE_GCC/X64/EfiGuardDxe.efi \
 		'$(DESTDIR)/$(DXENAME)'
 
 help:

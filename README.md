@@ -73,7 +73,7 @@ EfiGuard requires EDK2 to build. If you don't have EDK2 installed, follow the st
 2. Change directory to edk2: `cd edk2`
 3. Clone EfiGuard: `git clone https://github.com/utoni/EfiGuard.git EfiGuardPkg`
 4. Run `. ./edksetup.sh`
-5. Run `build -a X64 -t GCC5 -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE -D EFIGUARD_DRIVER_FILENAME='myefidrv.efi'`
+5. Run `build -a X64 -t GCC -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE -D EFIGUARD_DRIVER_FILENAME='myefidrv.efi'`
 
 Add `-D FASTBOOT=1` to speed up boot process by eliminating most `sleep()`s.
 
