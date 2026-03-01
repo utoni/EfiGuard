@@ -43,6 +43,14 @@ jobs:
         run: |
           mkdir -p ./out/default
           make -C ../edk2/EfiGuardPkg install DESTDIR=$(realpath ./out/default)
+      - name: Build EfiGuard (default Fastboot)
+        run: |
+          make -C ../edk2/EfiGuardPkg clean
+          make -C ../edk2/EfiGuardPkg all EAC_COMPAT_MODE=0 FASTBOOT=1
+      - name: Install EfiGuard (default Fastboot)
+        run: |
+          mkdir -p ./out/default-fastboot
+          make -C ../edk2/EfiGuardPkg install DESTDIR=$(realpath ./out/default-fastboot)
       - name: Build EfiGuard (EAC Compat Mode)
         run: |
           make -C ../edk2/EfiGuardPkg clean
@@ -51,6 +59,30 @@ jobs:
         run: |
           mkdir -p ./out/eac
           make -C ../edk2/EfiGuardPkg install DESTDIR=$(realpath ./out/eac)
+      - name: Build EfiGuard (EAC Compat Mode Fastboot)
+        run: |
+          make -C ../edk2/EfiGuardPkg clean
+          make -C ../edk2/EfiGuardPkg all EAC_COMPAT_MODE=1 FASTBOOT=1
+      - name: Install EfiGuard (EAC Compat Mode Fastboot)
+        run: |
+          mkdir -p ./out/eac-fastboot
+          make -C ../edk2/EfiGuardPkg install DESTDIR=$(realpath ./out/eac-fastboot)
+      - name: Build EfiGuard (Do Not Disable PatchGuard)
+        run: |
+          make -C ../edk2/EfiGuardPkg clean
+          make -C ../edk2/EfiGuardPkg all EAC_COMPAT_MODE=0 DO_NOT_DISABLE_PATCHGUARD=1
+      - name: Install EfiGuard (Do Not Disable PatchGuard)
+        run: |
+          mkdir -p ./out/pg
+          make -C ../edk2/EfiGuardPkg install DESTDIR=$(realpath ./out/pg)
+      - name: Build EfiGuard (Do Not Disable PatchGuard Fastboot)
+        run: |
+          make -C ../edk2/EfiGuardPkg clean
+          make -C ../edk2/EfiGuardPkg all EAC_COMPAT_MODE=0 DO_NOT_DISABLE_PATCHGUARD=1 FASTBOOT=1
+      - name: Install EfiGuard (Do Not Disable PatchGuard Fastboot)
+        run: |
+          mkdir -p ./out/pg-fastboot
+          make -C ../edk2/EfiGuardPkg install DESTDIR=$(realpath ./out/pg-fastboot)
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:

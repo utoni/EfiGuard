@@ -557,6 +557,7 @@ DisableETWTelemetry(
 }
 
 
+#if !defined(DO_NOT_DISABLE_PATCHGUARG) && !defined(EAC_COMPAT_MODE)
 //
 // Patches callback notification arrays to prevent anticheats from registering callbacks.
 // This includes ObRegisterCallbacks, PsSetCreateProcessNotifyRoutine, PsSetLoadImageNotifyRoutine, etc.
@@ -632,6 +633,7 @@ DisableCallbackRegistration(
 
 	return EFI_SUCCESS;
 }
+#endif
 
 
 //
@@ -673,50 +675,7 @@ HideKernelDebugger(
 			(UINT32)(KdDebuggerNotPresent - (UINTN)ImageBase));
 	}
 
-	// Patch SharedUserData values as well (0xFFFFF78000000000 + offsets)
-	// Note: These are virtual addresses that will be set up later, we're patching the kernel's initial values
-	PRINT_KERNEL_PATCH_MSG(L"    Note: SharedUserData->KdDebuggerEnabled will be set to FALSE at runtime.\r\n");
-
 	PRINT_KERNEL_PATCH_MSG(L"\r\n    Successfully hidden kernel debugger presence.\r\n");
-
-	return EFI_SUCCESS;
-}
-
-
-//
-// Patches NtQuerySystemInformation to allow SSDT hook protection.
-// This makes it harder for ACs to detect SSDT modifications.
-//
-STATIC
-EFI_STATUS
-EFIAPI
-ProtectSSDTHooks(
-	IN CONST UINT8* ImageBase,
-	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
-	IN PEFI_IMAGE_SECTION_HEADER PageSection,
-	IN UINT16 BuildNumber
-	)
-{
-	PRINT_KERNEL_PATCH_MSG(L"\r\n== Enabling SSDT Hook Protection ==\r\n");
-
-	// Find KeServiceDescriptorTable export - mark as read-only in page tables later
-	UINTN KeServiceDescriptorTable = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KeServiceDescriptorTable");
-	if (KeServiceDescriptorTable != 0)
-	{
-		PRINT_KERNEL_PATCH_MSG(L"    Found KeServiceDescriptorTable [RVA: 0x%X].\r\n",
-			(UINT32)(KeServiceDescriptorTable - (UINTN)ImageBase));
-		PRINT_KERNEL_PATCH_MSG(L"    Note: Your driver can hook SSDT after boot.\r\n");
-	}
-
-	// Find KiServiceTable (the actual SSDT array)
-	UINTN KiServiceTable = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "KiServiceTable");
-	if (KiServiceTable != 0)
-	{
-		PRINT_KERNEL_PATCH_MSG(L"    Found KiServiceTable [RVA: 0x%X].\r\n",
-			(UINT32)(KiServiceTable - (UINTN)ImageBase));
-	}
-
-	PRINT_KERNEL_PATCH_MSG(L"\r\n    SSDT is accessible for hooking. ACs will have difficulty detecting modifications.\r\n");
 
 	return EFI_SUCCESS;
 }
@@ -728,10 +687,9 @@ ProtectSSDTHooks(
 // ============================================================================
 //
 
+#ifndef DO_NOT_DISABLE_PATCHGUARD
 //
-// Intercept Instrumentation Callback registration.
-// Hyperion registers a custom IC. We make the kernel LIE - return SUCCESS but do NOTHING.
-// This way Hyperion thinks it succeeded, doesn't self-terminate, but has NO actual monitoring.
+// Intercept Instrumentation Callback registration, return STATUS_SUCCESS but no-op.
 //
 STATIC
 EFI_STATUS
@@ -748,19 +706,16 @@ DisableInstrumentationCallbacks(
 
 	PRINT_KERNEL_PATCH_MSG(L"\r\n== BOOTKIT: Hijacking Instrumentation Callback Registration ==\r\n");
 
-	// Find PsSetInstrumentationCallback and patch it to FAKE SUCCESS
+	// Find PsSetInstrumentationCallback and patch it to return STATUS_SUCCESS
 	UINTN PsSetInstrumentationCallback = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "PsSetInstrumentationCallback");
 	if (PsSetInstrumentationCallback != 0)
 	{
 		// Patch: xor eax, eax (STATUS_SUCCESS); ret
-		// Hyperion THINKS it registered, but callback is NEVER installed
 		CONST UINT8 PatchBytes[] = { 0x33, 0xC0, 0xC3 }; // xor eax, eax; ret
 		CopyWpMem((VOID*)PsSetInstrumentationCallback, PatchBytes, sizeof(PatchBytes));
 
 		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Patched PsSetInstrumentationCallback [RVA: 0x%X].\r\n",
 			(UINT32)(PsSetInstrumentationCallback - (UINTN)ImageBase));
-		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Hyperion's IC registration returns SUCCESS but does NOTHING!\r\n");
-		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] No syscall monitoring, no conflicts, no detection!\r\n");
 	}
 	else
 	{
@@ -784,7 +739,7 @@ PatchPageProtection(
 	IN UINT16 BuildNumber
 	)
 {
-	PRINT_KERNEL_PATCH_MSG(L"\r\n== BOOTKIT: Patching Page Protection Checks to LIE ==\r\n");
+	PRINT_KERNEL_PATCH_MSG(L"\r\n== BOOTKIT: Patching Page Protection Checks ==\r\n");
 
 	// Initialize Zydis for disassembly
 	ZYDIS_CONTEXT Context;
@@ -834,7 +789,6 @@ PatchPageProtection(
 	if (foundPatterns > 0)
 	{
 		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Patched %llu page protection conflict checks.\r\n", (UINT64)foundPatterns);
-		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Kernel will NOT report conflicts when you modify pages!\r\n");
 	}
 	else
 	{
@@ -853,86 +807,9 @@ PatchPageProtection(
 		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Internal conflict detection DISABLED.\r\n");
 	}
 
-	PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Page protection lies INSTALLED at KERNEL LEVEL.\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Hyperion's checks will see NO CONFLICTS.\r\n");
-
 	return EFI_SUCCESS;
 }
-
-
-//
-// Patch NtQueryVirtualMemory to hide memory modifications.
-// We're modifying the KERNEL ITSELF, not just using kernel APIs.
-// The kernel will LIE to Hyperion about memory state.
-//
-STATIC
-EFI_STATUS
-EFIAPI
-PatchMemoryQueryLies(
-	IN CONST UINT8* ImageBase,
-	IN PEFI_IMAGE_NT_HEADERS NtHeaders,
-	IN PEFI_IMAGE_SECTION_HEADER PageSection,
-	IN UINT16 BuildNumber
-	)
-{
-	PRINT_KERNEL_PATCH_MSG(L"\r\n== BOOTKIT: Patching Memory Query to LIE ==\r\n");
-
-	// Find NtQueryVirtualMemory
-	UINTN NtQueryVirtualMemory = (UINTN)GetProcedureAddress((UINTN)ImageBase, NtHeaders, "NtQueryVirtualMemory");
-	if (NtQueryVirtualMemory == 0)
-	{
-		PRINT_KERNEL_PATCH_MSG(L"    Warning: Could not find NtQueryVirtualMemory.\r\n");
-		return EFI_NOT_FOUND;
-	}
-
-	PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Found NtQueryVirtualMemory [RVA: 0x%X].\r\n",
-		(UINT32)(NtQueryVirtualMemory - (UINTN)ImageBase));
-
-	// Initialize Zydis
-	ZYDIS_CONTEXT Context;
-	ZyanStatus Status = ZydisInit(NtHeaders, &Context);
-	if (!ZYAN_SUCCESS(Status))
-	{
-		PRINT_KERNEL_PATCH_MSG(L"Failed to initialize disassembler engine.\r\n");
-		return EFI_LOAD_ERROR;
-	}
-
-	// Look for where NtQueryVirtualMemory returns protection flags
-	// We want to patch it to always return "original" protection values
-	// This requires finding the MiQueryAddressState call or similar
-
-	CONST UINT8* FuncStart = (CONST UINT8*)NtQueryVirtualMemory;
-
-	// Search first 0x200 bytes for protection flag assignment
-	// Pattern: mov [reg+offset], protection_value
-	BOOLEAN foundProtectSet = FALSE;
-
-	for (UINTN i = 0; i < 0x200; i++)
-	{
-		// Look for: mov dword ptr [reg+4], eax (where offset 4 is MEMORY_BASIC_INFORMATION.Protect)
-		if (FuncStart[i] == 0x89 && FuncStart[i+1] == 0x41 && FuncStart[i+2] == 0x04)
-		{
-			// Found protection flag write - we could patch this to sanitize values
-			// For now, just note that we found it
-			foundProtectSet = TRUE;
-			PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Found protection flag write at offset +0x%X.\r\n", (UINT32)i);
-			break;
-		}
-	}
-
-	if (foundProtectSet)
-	{
-		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Memory query protection reporting IDENTIFIED.\r\n");
-		PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Can be patched to sanitize returned protection values.\r\n");
-	}
-
-	// NOTE: Full runtime patching requires a companion driver
-	// The bootkit can only modify static code, not runtime behavior filtering
-	PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] For runtime filtering, load companion driver after boot.\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"    [BOOTKIT] Driver will intercept at SSDT level (no PatchGuard = safe).\r\n");
-
-	return EFI_SUCCESS;
-}
+#endif
 
 
 //
@@ -1348,12 +1225,14 @@ PatchNtoskrnl(
 		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: ETW telemetry disable failed.\r\n");
 	}
 
+#if !defined(DO_NOT_DISABLE_PATCHGUARG) && !defined(EAC_COMPAT_MODE)
 	// Disable callback registration (prevents ACs from registering monitoring callbacks)
 	Status = DisableCallbackRegistration(ImageBase, NtHeaders, PageSection, BuildNumber);
 	if (EFI_ERROR(Status))
 	{
 		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Callback registration patching failed.\r\n");
 	}
+#endif
 
 	// Hide kernel debugger presence (useful for reversing AC drivers)
 	Status = HideKernelDebugger(ImageBase, NtHeaders, BuildNumber);
@@ -1362,21 +1241,10 @@ PatchNtoskrnl(
 		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Kernel debugger hiding failed.\r\n");
 	}
 
-	// Enable SSDT hook protection
-	Status = ProtectSSDTHooks(ImageBase, NtHeaders, PageSection, BuildNumber);
-	if (EFI_ERROR(Status))
-	{
-		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: SSDT protection setup failed.\r\n");
-	}
-
 	// ============================================================================
 	// HYPERION-SPECIFIC ENHANCEMENTS (Roblox Anti-Tamper Bypass)
 	// ============================================================================
-
-	PRINT_KERNEL_PATCH_MSG(L"\r\n[PatchNtoskrnl] ========================================\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] APPLYING HYPERION-SPECIFIC BYPASSES...\r\n");
-	PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] ========================================\r\n");
-
+#ifndef DO_NOT_DISABLE_PATCHGUARD
 	// Disable Instrumentation Callbacks (Hyperion's syscall monitoring)
 	Status = DisableInstrumentationCallbacks(ImageBase, NtHeaders, PageSection, BuildNumber);
 	if (EFI_ERROR(Status))
@@ -1384,19 +1252,12 @@ PatchNtoskrnl(
 		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: IC disable failed.\r\n");
 	}
 
-	// BOOTKIT: Patch page protection checks AT KERNEL LEVEL to lie about conflicts
 	Status = PatchPageProtection(ImageBase, NtHeaders, PageSection, BuildNumber);
 	if (EFI_ERROR(Status))
 	{
 		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Page protection lie patching failed.\r\n");
 	}
-
-	// BOOTKIT: Patch memory queries AT KERNEL LEVEL to hide modifications
-	Status = PatchMemoryQueryLies(ImageBase, NtHeaders, PageSection, BuildNumber);
-	if (EFI_ERROR(Status))
-	{
-		PRINT_KERNEL_PATCH_MSG(L"[PatchNtoskrnl] Warning: Memory query lie patching failed.\r\n");
-	}
+#endif
 
 	// ============================================================================
 
