@@ -166,9 +166,7 @@ HookedLoadImage(
 		(IsBoot ? L"Booting" : L"Loading"), ImagePath, (UINTN)ParentImageHandle);
 	if (ImagePath != NULL)
 		FreePool(ImagePath);
-#ifndef FASTBOOT
 	RtlSleep(500);
-#endif
 
 	// Q: If we loaded bootmgfw.efi manually, is there any benefit to flipping BootPolicy to TRUE
 	// to make it look like the load request came straight from the boot manager?
@@ -537,9 +535,9 @@ EfiGuardUnload(
 	return EFI_SUCCESS;
 }
 
-// 
+//
 // Main entry point
-// 
+//
 EFI_STATUS
 EFIAPI
 EfiGuardInitialize(
