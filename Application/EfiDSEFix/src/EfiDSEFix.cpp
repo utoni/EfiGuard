@@ -20,7 +20,7 @@ FindKernelModule(
 	NTSTATUS Status;
 	if ((Status = NtQuerySystemInformation(SystemModuleInformation, nullptr, 0, &Size)) != STATUS_INFO_LENGTH_MISMATCH)
 		return Status;
-	
+
 	const PRTL_PROCESS_MODULES Modules = static_cast<PRTL_PROCESS_MODULES>(RtlAllocateHeap(RtlProcessHeap(), HEAP_ZERO_MEMORY, 2 * static_cast<SIZE_T>(Size)));
 	Status = NtQuerySystemInformation(SystemModuleInformation,
 										Modules,
@@ -71,6 +71,8 @@ FindCiEnabled(
 }
 
 // For Windows 8 and worse. Credits: DSEFix by hfiref0x
+// TODO: consider switching to Zydis for this? At this point, this code is both verbose and brittle.
+// https://github.com/hfiref0x/KDU has a more robust scan using HDE, but it still fundamentally suffers from the same issues.
 static
 LONG
 FindCiOptions(
@@ -160,9 +162,15 @@ FindCiOptions(
 		if (hs.flags & F_ERROR)
 			break;
 
-		if (hs.len == 6 && *reinterpret_cast<PUSHORT>(CipInitialize + i) == 0x0d89) // mov g_CiOptions, ecx
+		// TODO: this should really match arbitrary r32 immediates.
+		UCHAR PrefixSkip = ((hs.flags & F_PREFIX_ANY) != 0) ? 1 : 0; // Expected to only ever be F_PREFIX_REX
+		UCHAR ExpectedLength = 6 + PrefixSkip;
+
+		if (hs.len == ExpectedLength &&
+			(*reinterpret_cast<PUSHORT>(CipInitialize + i + PrefixSkip) == 0x0d89) ||	// mov g_CiOptions, ecx
+			(*reinterpret_cast<PUSHORT>(CipInitialize + i + PrefixSkip) == 0x2d89))		// mov g_CiOptions, r13d
 		{
-			Relative = *reinterpret_cast<PLONG>(CipInitialize + i + 2);
+			Relative = *reinterpret_cast<PLONG>(CipInitialize + i + PrefixSkip + 2);
 			break;
 		}
 
@@ -248,7 +256,7 @@ FindCiOptionsVariable(
 			Status = STATUS_NOT_FOUND;
 		}
 	}
-	
+
 Exit:
 	NtUnmapViewOfSection(NtCurrentProcess, MappedBase);
 	return Status;
@@ -452,8 +460,9 @@ AdjustCiOptions(
 	// Find CI!g_CiOptions/nt!g_CiEnabled
 	PVOID CiOptionsAddress;
 	NTSTATUS Status = FindCiOptionsVariable(&CiOptionsAddress);
-	if (!NT_SUCCESS(Status)) {
-		Printf(L"Failed to locate CI variable (status: 0x%08lX)\n", Status);
+	if (!NT_SUCCESS(Status))
+	{
+		Printf(L"Failed to find %ls address: error 0x%08lX.\n", (NtCurrentPeb()->OSBuildNumber >= 9200 ? L"CI!g_CiOptions" : L"nt!g_CiEnabled"), Status);
 		return Status;
 	}
 
