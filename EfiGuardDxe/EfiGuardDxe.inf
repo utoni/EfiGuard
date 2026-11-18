@@ -33,6 +33,7 @@
   MdePkg/MdePkg.dec
   EfiGuardPkg/EfiGuardPkg.dec
   MdeModulePkg/MdeModulePkg.dec
+  SecurityPkg/SecurityPkg.dec
 
 [LibraryClasses]
   UefiDriverEntryPoint

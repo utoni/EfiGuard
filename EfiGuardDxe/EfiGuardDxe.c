@@ -1,6 +1,9 @@
 #include "EfiGuardDxe.h"
 
 #include <Protocol/Shell.h>
+#ifdef HOOK_SECURE_BOOT
+#include <Guid/AuthenticatedVariableFormat.h>
+#endif
 #include <Guid/EventGroup.h>
 #include <Library/BaseMemoryLib.h>
 #include <Library/DevicePathLib.h>
@@ -64,6 +67,13 @@ BOOLEAN gEfiGoneVirtual = FALSE;
 // Original gBS->LoadImage pointer
 //
 STATIC EFI_IMAGE_LOAD mOriginalLoadImage = NULL;
+
+#ifdef HOOK_SECURE_BOOT
+//
+// Original gRT->GetVariable pointer
+//
+STATIC EFI_GET_VARIABLE mOriginalGetVariable = NULL;
+#endif
 
 //
 // Original gRT->SetVariable pointer
@@ -166,7 +176,9 @@ HookedLoadImage(
 		(IsBoot ? L"Booting" : L"Loading"), ImagePath, (UINTN)ParentImageHandle);
 	if (ImagePath != NULL)
 		FreePool(ImagePath);
+#ifndef FASTBOOT
 	RtlSleep(500);
+#endif
 
 	// Q: If we loaded bootmgfw.efi manually, is there any benefit to flipping BootPolicy to TRUE
 	// to make it look like the load request came straight from the boot manager?
@@ -229,6 +241,69 @@ HookedLoadImage(
 	return Status;
 }
 
+#ifdef HOOK_SECURE_BOOT
+//
+// Runtime Services GetVariable hook
+//
+EFI_STATUS
+EFIAPI
+HookedGetVariable(
+	IN CHAR16 *VariableName,
+	IN EFI_GUID *VendorGuid,
+	OUT UINT32 *Attributes,
+	IN OUT UINTN *DataSize,
+	OUT VOID *Data
+	)
+{
+	if (gEfiAtRuntime && gEfiGoneVirtual &&
+	    VariableName != NULL && VariableName[0] != CHAR_NULL && VendorGuid != NULL)
+	{
+		if (StrCmp(VariableName, EFI_SECURE_BOOT_ENABLE_NAME) == 0)
+		{
+			if (*DataSize < sizeof(UINT8))
+				return EFI_BUFFER_TOO_SMALL;
+
+			*(UINT8*)Data = SECURE_BOOT_ENABLE;
+			return EFI_SUCCESS;
+		}
+		if (StrCmp(VariableName, EFI_CUSTOM_MODE_NAME) == 0)
+		{
+			if (*DataSize < sizeof(UINT8))
+				return EFI_BUFFER_TOO_SMALL;
+
+			*(UINT8*)Data = STANDARD_SECURE_BOOT_MODE;
+			return EFI_SUCCESS;
+		}
+		if (StrCmp(VariableName, EFI_VENDOR_KEYS_NV_VARIABLE_NAME) == 0)
+		{
+			if (*DataSize < sizeof(UINT8))
+				return EFI_BUFFER_TOO_SMALL;
+
+			*(UINT8*)Data = VENDOR_KEYS_VALID;
+			return EFI_SUCCESS;
+		}
+		if (StrCmp(VariableName, EFI_SECURE_BOOT_MODE_NAME) == 0)
+		{
+			if (*DataSize < sizeof(UINT8))
+				return EFI_BUFFER_TOO_SMALL;
+
+			*(UINT8*)Data = SECURE_BOOT_ENABLE;
+			return EFI_SUCCESS;
+		}
+		if (StrCmp(VariableName, EFI_VENDOR_KEYS_VARIABLE_NAME) == 0)
+		{
+			if (*DataSize < sizeof(UINT8))
+				return EFI_BUFFER_TOO_SMALL;
+
+			*(UINT8*)Data = VENDOR_KEYS_VALID;
+			return EFI_SUCCESS;
+		}
+	}
+
+	return mOriginalGetVariable(VariableName, VendorGuid, Attributes, DataSize, Data);
+}
+#endif
+
 //
 // Runtime Services SetVariable hook
 //
@@ -244,11 +319,6 @@ HookedSetVariable(
 {
 	// We should not be hooking the runtime table after ExitBootServices() unless this is the selected DSE bypass method
 	ASSERT(!gEfiAtRuntime || (gDriverConfig.DseBypassMethod == DSE_DISABLE_SETVARIABLE_HOOK && gBootmgfwHandle != NULL));
-
-	if (StrCmp(VariableName, L"SecureBoot") == 0)
-	{
-		return EFI_WRITE_PROTECTED;
-	}
 
 	// Do we have a match for the variable name and vendor GUID?
 	if (gEfiAtRuntime && gEfiGoneVirtual &&
@@ -446,9 +516,15 @@ SetVirtualAddressMapEvent(
 	ASSERT(gEfiAtRuntime == TRUE);
 	ASSERT(gBS == NULL);
 	gEfiVirtualNotifyEvent = NULL;
+	EFI_STATUS Status;
+
+#ifdef HOOK_SECURE_BOOT
+	// Convert the original SetVariable pointer to virtual so our hook will continue to work
+	Status = gRT->ConvertPointer(0, (VOID**)&mOriginalGetVariable);
+#endif
 
 	// Convert the original SetVariable pointer to virtual so our hook will continue to work
-	EFI_STATUS Status = gRT->ConvertPointer(0, (VOID**)&mOriginalSetVariable);
+	Status = gRT->ConvertPointer(0, (VOID**)&mOriginalSetVariable);
 	ASSERT_EFI_ERROR(Status);
 
 	// Convert the runtime services pointer itself from physical to virtual
@@ -517,6 +593,15 @@ EfiGuardUnload(
 		gBS->CloseEvent(gEfiExitBootServicesEvent);
 		gEfiExitBootServicesEvent = NULL;
 	}
+
+#ifdef HOOK_SECURE_BOOT
+	// Unhook gRT->GetVariable
+	if (mOriginalGetVariable != NULL)
+	{
+		SetServicePointer(&gRT->Hdr, (VOID**)&gRT->GetVariable, (VOID*)mOriginalGetVariable);
+		mOriginalGetVariable = NULL;
+	}
+#endif
 
 	// Unhook gRT->SetVariable
 	if (mOriginalSetVariable != NULL)
@@ -612,6 +697,14 @@ EfiGuardInitialize(
 	//
 	mOriginalLoadImage = (EFI_IMAGE_LOAD)SetServicePointer(&gBS->Hdr, (VOID**)&gBS->LoadImage, (VOID*)&HookedLoadImage);
 	Print(L"Hooked gBS->LoadImage: 0x%p -> 0x%p\r\n", (VOID*)mOriginalLoadImage, (VOID*)&HookedLoadImage);
+
+#ifdef HOOK_SECURE_BOOT
+	//
+	// Hook gRT->GetVariable
+	//
+	mOriginalGetVariable = (EFI_GET_VARIABLE)SetServicePointer(&gRT->Hdr, (VOID**)&gRT->GetVariable, (VOID*)&HookedGetVariable);
+	Print(L"Hooked gRT->GetVariable: 0x%p -> 0x%p\r\n", (VOID*)mOriginalGetVariable, (VOID*)&HookedGetVariable);
+#endif
 
 	//
 	// Hook gRT->SetVariable

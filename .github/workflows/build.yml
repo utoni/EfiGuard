@@ -62,7 +62,7 @@ jobs:
       - name: Build EfiGuard (EAC Compat Mode Fastboot)
         run: |
           make -C ../edk2/EfiGuardPkg clean
-          make -C ../edk2/EfiGuardPkg all EAC_COMPAT_MODE=1 FASTBOOT=1
+          make -C ../edk2/EfiGuardPkg all EAC_COMPAT_MODE=1 FASTBOOT=1 HOOK_SECURE_BOOT=1
       - name: Install EfiGuard (EAC Compat Mode Fastboot)
         run: |
           mkdir -p ./out/eac-fastboot

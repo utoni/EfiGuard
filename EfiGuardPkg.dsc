@@ -8,6 +8,8 @@
   BUILD_TARGETS                  = DEBUG|RELEASE|NOOPT
   SKUID_IDENTIFIER               = DEFAULT
 
+!include MdePkg/MdeLibs.dsc.inc
+
 [LibraryClasses]
   # Entry points
   UefiDriverEntryPoint|MdePkg/Library/UefiDriverEntryPoint/UefiDriverEntryPoint.inf
@@ -99,6 +101,9 @@
 !if $(EAC_COMPAT_MODE) == 1
   *_*_*_CC_FLAGS = -D EAC_COMPAT_MODE=1
 !endif
+!if $(HOOK_SECURE_BOOT) == 1
+  *_*_*_CC_FLAGS = -D HOOK_SECURE_BOOT=1
+!endif
 !ifdef $(EFIGUARD_DRIVER_FILENAME)
   *_*_*_CC_FLAGS = -D EFIGUARD_DRIVER_FILENAME=\"$(EFIGUARD_DRIVER_FILENAME)\"
 !endif
@@ -121,7 +126,7 @@
   INTEL:*_*_*_DLINK_FLAGS = /ALIGN:0x1000 /FILEALIGN:0x1000 /SECTION:.pdata,!D /SECTION:.xdata,!D /DEBUG:FULL /NOVCFEATURE /NOCOFFGRPINFO /PDBALTPATH:%_PDB%
 !if $(TOOL_CHAIN_TAG) != "XCODE5" && $(TOOL_CHAIN_TAG) != "CLANGPDB"
   GCC:*_*_*_DLINK_FLAGS = -z common-page-size=0x1000
-!else if $(TOOL_CHAIN_TAG) == "CLANGPDB"
+!elseif $(TOOL_CHAIN_TAG) == "CLANGPDB"
   GCC:*_*_*_DLINK_FLAGS = /ALIGN:0x1000 /FILEALIGN:0x1000 /DRIVER
 !endif
 

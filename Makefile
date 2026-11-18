@@ -7,6 +7,7 @@ DXENAME=EfiGuardDxe.efi
 FASTBOOT=0
 DO_NOT_DISABLE_PATCHGUARD=0
 EAC_COMPAT_MODE=1
+HOOK_SECURE_BOOT=0
 
 EDK2FLAGS=-D EFIGUARD_DRIVER_FILENAME='$(DXENAME)'
 
@@ -23,6 +24,9 @@ endif
 ifeq ("$(EAC_COMPAT_MODE)","1")
 EDK2FLAGS+=-D EAC_COMPAT_MODE=1
 endif
+ifeq ("$(HOOK_SECURE_BOOT)","1")
+EDK2FLAGS+=-D HOOK_SECURE_BOOT=1
+endif
 
 all: app efi
 
@@ -37,6 +41,7 @@ app:
 	$(MAKE) -C Application/EfiDSEFix -f Makefile.mingw all
 
 efi:
+	make -C '$(EDK2DIR)/BaseTools'
 	cd '$(EDK2DIR)' && \
 		. $(EDK2SETUPSCRIPT) && \
 			build -a X64 -t GCC -p EfiGuardPkg/EfiGuardPkg.dsc -b RELEASE \
@@ -69,6 +74,7 @@ help:
 	@echo 'FASTBOOT                  = $(FASTBOOT)'
 	@echo 'DO_NOT_DISABLE_PATCHGUARD = $(DO_NOT_DISABLE_PATCHGUARD)'
 	@echo 'EAC_COMPAT_MODE           = $(EAC_COMPAT_MODE)'
+	@echo 'HOOK_SECURE_BOOT          = $(HOOK_SECURE_BOOT)'
 	@echo 'EFIGUARD_DRIVER_FILENAME  = $(EFIGUARD_DRIVER_FILENAME)'
 	@echo 'EDK2FLAGS                 = $(EDK2FLAGS)'
 

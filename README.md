@@ -81,6 +81,8 @@ Add `-D EAC_COMPAT_MODE=1` if you want to enable EasyAntiCheat compatibility mod
 
 Add `-D DO_NOT_DISABLE_PATCHGUARD=1` if you want to leave PatchGuard intact (Experimental!).
 
+Add `-D HOOK_SECURE_BOOT=1` if you want to fake enabed UEFI Secure Boot (Experimental!).
+
 All build configurations may also set via top level `Makefile`, see `make help`.
 
 ## Last but not Least
